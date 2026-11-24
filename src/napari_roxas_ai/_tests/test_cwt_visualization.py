@@ -813,7 +813,7 @@ def test_cells_editor_cwt_circles_lifecycle(make_napari_viewer, tmp_path):
     )
 
     editor = CellsLayerEditorWidget(viewer)
-    editor._edition_mode_combo.value = "Raster"
+    editor._edition_mode_choice.value = "Raster"
 
     # 1. Edit mode: CWT circles should be hidden
     editor._edit_cells_geometries()
