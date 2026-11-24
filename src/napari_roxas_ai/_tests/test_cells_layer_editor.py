@@ -38,7 +38,7 @@ def test_cells_layer_editor_lasso_selection_and_deletion(make_napari_viewer, qtb
     assert not widget._delete_lasso_cells_button.visible
 
     # Set mode to Vector and enter edit mode
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
 
     # Wait for the background vectorization worker to complete
@@ -109,7 +109,7 @@ def test_lasso_delete_vertex_criteria(make_napari_viewer, qtbot):
 
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
 
     qtbot.wait_until(
@@ -177,7 +177,7 @@ def test_lasso_near_boundary(make_napari_viewer, qtbot):
 
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
 
     qtbot.wait_until(
@@ -216,7 +216,7 @@ def test_overlapping_lassos_deletion(make_napari_viewer, qtbot):
 
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
 
     qtbot.wait_until(
@@ -339,7 +339,7 @@ def test_delete_selected_cells_button_enabled_disabled_state(make_napari_viewer,
 
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
 
     qtbot.wait_until(
@@ -394,20 +394,20 @@ def test_save_all_layers_button_lifecycle_and_callback(make_napari_viewer, qtbot
     assert hasattr(widget, "_save_all_layers_button")
     assert widget._save_all_layers_button.text == "Save All Layers"
     assert widget._save_all_layers_button.visible
-    assert widget._edition_mode_combo.label == "Editing Mode"
-    assert tuple(widget._edition_mode_combo.choices) == ("Vector", "Raster")
-    assert widget._edition_mode_combo.value == "Vector"
+    assert tuple(widget._edition_mode_choice.choices) == ("Vector", "Raster")
+    assert widget._edition_mode_choice.value == "Vector"
 
-    # Layout order: save button is after edition mode row
+    # Layout order: the mode, then the edit button, then the save button
     widget_list = list(widget)
-    combo_idx = widget_list.index(widget._edition_mode_row)
+    mode_idx = widget_list.index(widget._edition_mode_row)
+    edit_btn_idx = widget_list.index(widget._edit_cells_geometries_button)
     save_btn_idx = widget_list.index(widget._save_all_layers_button)
-    assert save_btn_idx == combo_idx + 1
+    assert mode_idx < edit_btn_idx < save_btn_idx
 
     # 2. Check delegate callback when clicked and disabled controls
     assert widget._save_all_layers_button.enabled
     assert widget._edit_cells_geometries_button.enabled
-    assert widget._edition_mode_combo.enabled
+    assert widget._edition_mode_choice.enabled
     assert widget._edition_mode_row.enabled
 
     # A running save, finished by hand below
@@ -423,7 +423,7 @@ def test_save_all_layers_button_lifecycle_and_callback(make_napari_viewer, qtbot
     assert saved == [True]  # only the unsaved layers
     assert not widget._save_all_layers_button.enabled
     assert not widget._edit_cells_geometries_button.enabled
-    assert not widget._edition_mode_combo.enabled
+    assert not widget._edition_mode_choice.enabled
     assert not widget._edition_mode_row.enabled
 
     # Save done: the controls are enabled again
@@ -431,11 +431,11 @@ def test_save_all_layers_button_lifecycle_and_callback(make_napari_viewer, qtbot
     save._on_finished()
     assert widget._save_all_layers_button.enabled
     assert widget._edit_cells_geometries_button.enabled
-    assert widget._edition_mode_combo.enabled
+    assert widget._edition_mode_choice.enabled
     assert widget._edition_mode_row.enabled
 
     # 3. Enter raster edit mode -> button should be hidden
-    widget._edition_mode_combo.value = "Raster"
+    widget._edition_mode_choice.value = "Raster"
     widget._edit_cells_geometries()
     assert not widget._save_all_layers_button.visible
 
@@ -444,7 +444,7 @@ def test_save_all_layers_button_lifecycle_and_callback(make_napari_viewer, qtbot
     assert widget._save_all_layers_button.visible
 
     # 4. Enter vector edit mode -> button should be hidden
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
     qtbot.wait_until(
         lambda: "Cells Modification" in viewer.layers,
@@ -461,7 +461,7 @@ def _start_vector_editing(viewer, qtbot, data):
     viewer.add_labels(data, name="sample.cells")
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
     qtbot.wait_until(
         lambda: "Cells Modification" in viewer.layers,
@@ -474,7 +474,7 @@ def _start_raster_editing(viewer, data):
     cells_layer = viewer.add_labels(data, name="sample.cells")
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Raster"
+    widget._edition_mode_choice.value = "Raster"
     widget._edit_cells_geometries()
     return widget, cells_layer, viewer.layers["Cells Modification"]
 
@@ -507,11 +507,11 @@ def test_undo_button_lifecycle_and_vector_undo(make_napari_viewer, qtbot):
     data[30:40, 30:40] = 1
 
     widget = CellsLayerEditorWidget(viewer)
-    assert not widget._undo_button.visible
+    assert not widget._edit_tools.visible
 
     widget, edit_layer = _start_vector_editing(viewer, qtbot, data)
-    assert widget._undo_button.visible
-    assert not widget._undo_button.enabled  # nothing to undo yet
+    assert widget._edit_tools.visible
+    assert not widget._edit_tools._undo_enabled  # nothing to undo yet
     original_shapes = [np.array(d, copy=True) for d in edit_layer.data]
 
     # Lasso deletion is a single undo step
@@ -526,7 +526,7 @@ def test_undo_button_lifecycle_and_vector_undo(make_napari_viewer, qtbot):
     edit_layer.add_polygons([np.array([[20, 20], [20, 25], [25, 25], [25, 20]])])
     assert len(edit_layer.data) == 2
     assert len(widget._undo_stack) == 2
-    assert widget._undo_button.enabled
+    assert widget._edit_tools._undo_enabled
 
     # Undo restores the states in reverse order
     widget._undo_last_change()
@@ -534,11 +534,11 @@ def test_undo_button_lifecycle_and_vector_undo(make_napari_viewer, qtbot):
     widget._undo_last_change()
     assert len(edit_layer.data) == 2
     assert all(np.array_equal(a, b) for a, b in zip(edit_layer.data, original_shapes))
-    assert not widget._undo_button.enabled
+    assert not widget._edit_tools._undo_enabled
 
     # The undo button is hidden and the history cleared after the edit session
     widget._cancel_cells_geometries()
-    assert not widget._undo_button.visible
+    assert not widget._edit_tools.visible
     assert not widget._undo_stack
     assert widget._undo_current is None
 
@@ -549,20 +549,20 @@ def test_raster_undo_uses_labels_paint_history(make_napari_viewer, qtbot):
     data[5:15, 5:15] = 1
     widget, cells_layer, edit_layer = _start_raster_editing(viewer, data)
 
-    assert widget._undo_button.visible
-    assert not widget._undo_button.enabled
+    assert widget._edit_tools.visible
+    assert not widget._edit_tools._undo_enabled
 
     edit_layer.brush_size = 3
     edit_layer.paint((30, 30), 1)
     assert edit_layer.data[30, 30] == 1
-    assert widget._undo_button.enabled
+    assert widget._edit_tools._undo_enabled
 
     widget._undo_last_change()
     assert edit_layer.data[30, 30] == 0
-    assert not widget._undo_button.enabled
+    assert not widget._edit_tools._undo_enabled
 
     widget._apply_cells_geometries()
-    assert not widget._undo_button.visible
+    assert not widget._edit_tools.visible
     assert cells_layer.data[30, 30] == 0
 
 
@@ -692,7 +692,7 @@ def test_vector_undo_history_keeps_only_last_edits(make_napari_viewer, qtbot):
     for _ in range(UNDO_HISTORY_LIMIT):
         widget._undo_last_change()
     assert len(edit_layer.data) == 6
-    assert not widget._undo_button.enabled
+    assert not widget._edit_tools._undo_enabled
 
 
 def test_only_ctrl_triggers_raster_shortcuts(make_napari_viewer):
@@ -774,7 +774,7 @@ def test_mutual_editing_exclusion_cells_and_rings(make_napari_viewer):
     assert not cells_widget._edit_cells_geometries_button.tooltip
 
     # 2. Start cell editing (raster mode for instant synchronous creation)
-    cells_widget._edition_mode_combo.value = "Raster"
+    cells_widget._edition_mode_choice.value = "Raster"
     cells_widget._edit_cells_geometries()
     assert "Cells Modification" in viewer.layers
     assert not rings_widget._edit_rings_geometries_button.enabled
@@ -813,7 +813,7 @@ def test_failed_vectorization_reports_and_leaves_the_editor_usable(
     errors = []
     monkeypatch.setattr(_runner, "show_error", errors.append)
 
-    widget._edition_mode_combo.value = "Vector"
+    widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries_button.press()
 
     assert errors == ["Vectorization failed: no contours"]
@@ -821,7 +821,7 @@ def test_failed_vectorization_reports_and_leaves_the_editor_usable(
     # The rings hidden for editing are shown again
     assert rings.visible
     assert widget._edit_cells_geometries_button.enabled
-    assert widget._edition_mode_combo.enabled
+    assert widget._edition_mode_choice.enabled
 
 
 def test_fill_cells_holes_fills_only_internal_holes():
@@ -851,7 +851,7 @@ def test_apply_raster_edits_fills_cell_holes(make_napari_viewer):
     cells_layer = viewer.add_labels(data, name="sample.cells")
 
     widget = CellsLayerEditorWidget(viewer)
-    widget._edition_mode_combo.value = "Raster"
+    widget._edition_mode_choice.value = "Raster"
     widget._edit_cells_geometries()
 
     # Erase the cell interior to create a donut-shaped cell
@@ -873,7 +873,7 @@ def test_removing_session_layer_cancels_edit_session(make_napari_viewer, qtbot, 
     viewer.add_labels(np.zeros((20, 20), dtype=np.uint8), name="sample.cells")
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Raster"
+    widget._edition_mode_choice.value = "Raster"
     widget._edit_cells_geometries()
     assert widget._apply_cells_geometries_button.visible
 
@@ -884,7 +884,7 @@ def test_removing_session_layer_cancels_edit_session(make_napari_viewer, qtbot, 
     assert widget._edit_cells_geometries_button.visible
     assert not widget._apply_cells_geometries_button.visible
     assert not widget._cancel_cells_geometries_button.visible
-    assert not widget._undo_button.visible
+    assert not widget._edit_tools.visible
 
 
 def test_removing_all_layers_during_edit_session(make_napari_viewer, qtbot):
@@ -892,7 +892,7 @@ def test_removing_all_layers_during_edit_session(make_napari_viewer, qtbot):
     viewer.add_labels(np.zeros((20, 20), dtype=np.uint8), name="sample.cells")
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-    widget._edition_mode_combo.value = "Raster"
+    widget._edition_mode_choice.value = "Raster"
     widget._edit_cells_geometries()
 
     viewer.layers.selection = set(viewer.layers)

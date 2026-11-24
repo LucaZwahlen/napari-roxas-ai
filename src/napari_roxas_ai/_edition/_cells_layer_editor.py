@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 from magicgui.widgets import (
     CheckBox,
-    ComboBox,
     Container,
     PushButton,
+    RadioButtons,
 )
 from napari.components._viewer_mouse_bindings import dims_scroll
 from napari.layers.base._base_constants import ActionType
@@ -26,6 +26,7 @@ from napari_roxas_ai._settings import SettingsManager
 from napari_roxas_ai.shortcuts import prevent_duplicate_dock_if_already_present
 
 from ._operations import vectorize_cells
+from ._tools import EditToolsPanel
 
 if TYPE_CHECKING:
     import napari
@@ -145,16 +146,24 @@ class CellsLayerEditorWidget(Container):
             cancellable=False,
         )
 
-        # Create an edition mode combo box
-        self._edition_mode_combo = ComboBox(
-            label="Editing Mode",
-            choices=["Vector", "Raster"],
+        # The edition mode: two options, side by side
+        self._edition_mode_choice = RadioButtons(
+            # (shown text, value)
+            choices=[
+                ("Vector Mode", "Vector"),
+                ("Raster (Pixel) Mode", "Raster"),
+            ],
             value="Vector",
+            orientation="horizontal",
+        )
+        # Radio buttons are a group box, which napari's theme draws framed
+        self._edition_mode_choice.native.setStyleSheet(
+            "QGroupBox { border: none; margin: 0px; background: transparent; }"
         )
         self._edition_mode_row = Container(
-            widgets=[self._edition_mode_combo],
+            widgets=[self._edition_mode_choice],
             layout="horizontal",
-            labels=True,
+            labels=False,
         )
         if hasattr(self._edition_mode_row.native, "layout"):
             layout = self._edition_mode_row.native.layout()
@@ -182,22 +191,34 @@ class CellsLayerEditorWidget(Container):
             self._apply_cells_geometries
         )
 
-        # Create a button to undo the last change of the edit session
-        self._undo_button = PushButton(
-            text="Undo Last Change", visible=False
+        # Apply and Cancel side by side (confirming button first)
+        self._session_buttons = Container(
+            widgets=[
+                self._apply_cells_geometries_button,
+                self._cancel_cells_geometries_button,
+            ],
+            layout="horizontal",
+            labels=False,
         )
-        self._undo_button.changed.connect(self._undo_last_change)
+        self._session_buttons.margins = (0, 0, 0, 0)
+
+        # The tools of the edit session (napari's tools and ours, with options);
+        # its Undo button runs the undo of the edit session
+        self._edit_tools = EditToolsPanel(viewer, visible=False)
+        self._edit_tools.set_undo(self._undo_last_change)
 
         # Append the widgets to the container
         self.extend(
             [
                 self._lasso_container,
-                self._edit_cells_geometries_button,
+                # First the mode, then edit
                 self._edition_mode_row,
+                self._edit_cells_geometries_button,
                 self._save_all_layers_button,
-                self._cancel_cells_geometries_button,
-                self._apply_cells_geometries_button,
-                self._undo_button,
+                # Session buttons above the tools: they stay in place when
+                # the tools panel changes size (tool, edit mode)
+                self._session_buttons,
+                self._edit_tools,
             ]
         )
 
@@ -510,7 +531,7 @@ class CellsLayerEditorWidget(Container):
             can_undo = bool(layer._undo_history)
         else:
             can_undo = layer is not None and bool(self._undo_stack)
-        self._undo_button.enabled = can_undo
+        self._edit_tools.set_undo_enabled(can_undo)
         # Lets the unsaved changes guard know whether the session has edits
         if layer is not None:
             layer.metadata["_is_dirty"] = can_undo
@@ -669,7 +690,7 @@ class CellsLayerEditorWidget(Container):
 
         controls = (
             self._edit_cells_geometries_button,
-            self._edition_mode_combo,
+            self._edition_mode_choice,
             self._edition_mode_row,
         )
         for control in controls:
@@ -710,7 +731,7 @@ class CellsLayerEditorWidget(Container):
                 self._layer_visibility_states[layer.name] = layer.visible
                 layer.visible = False
 
-        self._edition_mode = self._edition_mode_combo.value
+        self._edition_mode = self._edition_mode_choice.value
         self.input_layer = input_layer
 
         sample_name = self.input_layer.metadata.get("sample_name")
@@ -718,7 +739,7 @@ class CellsLayerEditorWidget(Container):
 
         if self._edition_mode == "Raster":
             # Update button visibility
-            self._edition_mode_combo.visible = False
+            self._edition_mode_choice.visible = False
             self._edition_mode_row.visible = False
             self._edit_cells_geometries_button.visible = False
             self._save_all_layers_button.visible = False
@@ -747,6 +768,8 @@ class CellsLayerEditorWidget(Container):
 
             self._setup_raster_shortcuts(work_layer)
             self._is_editing = True
+            self._edit_tools.edit_pixels(work_layer)
+            self._edit_tools.visible = True
 
             # Track the edit session history for undo (button and Ctrl/Cmd+Z)
             self._reset_undo_history()
@@ -754,14 +777,13 @@ class CellsLayerEditorWidget(Container):
             work_layer.bind_key(
                 "Control-Z", lambda _layer: self._undo_last_change(), overwrite=True
             )
-            self._undo_button.visible = True
             self._update_undo_button_state()
 
         elif self._edition_mode == "Vector":
             # Disable controls while the cells are vectorized
             controls = (
                 self._edit_cells_geometries_button,
-                self._edition_mode_combo,
+                self._edition_mode_choice,
                 self._edition_mode_row,
                 self._save_all_layers_button,
             )
@@ -788,13 +810,15 @@ class CellsLayerEditorWidget(Container):
                 )
                 self._viewer.add_layer(work_layer)
                 self._is_editing = True
+                self._edit_tools.edit_vectors(work_layer)
+                self._edit_tools.visible = True
                 if sample_name is not None:
                     work_layer.metadata["sample_name"] = sample_name
                 if sample_stem_path is not None:
                     work_layer.metadata["sample_stem_path"] = sample_stem_path
 
                 # Update button visibility for vector editing
-                self._edition_mode_combo.visible = False
+                self._edition_mode_choice.visible = False
                 self._edition_mode_row.visible = False
                 self._edit_cells_geometries_button.visible = False
                 self._save_all_layers_button.visible = False
@@ -814,7 +838,6 @@ class CellsLayerEditorWidget(Container):
                     lambda _layer: self._undo_last_change(),
                     overwrite=True,
                 )
-                self._undo_button.visible = True
                 self._update_undo_button_state()
 
             def _on_vectorization_errored(_error):
@@ -845,6 +868,8 @@ class CellsLayerEditorWidget(Container):
         """Cancel the changes made to the input layer."""
         # Ended first, so removing the working layer below does not re-trigger
         self._is_editing = False
+        self._edit_tools.end_editing()
+        self._edit_tools.visible = False
         if self._lasso_selection_checkbox.value:
             self._lasso_selection_checkbox.value = False
         if "Lasso Selection" in self._viewer.layers:
@@ -859,13 +884,12 @@ class CellsLayerEditorWidget(Container):
         self._reset_undo_history()
 
         # Reset the button visibility
-        self._edition_mode_combo.visible = True
+        self._edition_mode_choice.visible = True
         self._edition_mode_row.visible = True
         self._edit_cells_geometries_button.visible = True
         self._save_all_layers_button.visible = True
         self._cancel_cells_geometries_button.visible = False
         self._apply_cells_geometries_button.visible = False
-        self._undo_button.visible = False
 
         self._restore_dims_scroll()
         self._restore_original_visibility()
@@ -877,6 +901,8 @@ class CellsLayerEditorWidget(Container):
         """Apply the changes to the input layer."""
         # Ended first, so removing the working layer below does not cancel
         self._is_editing = False
+        self._edit_tools.end_editing()
+        self._edit_tools.visible = False
         if self._lasso_selection_checkbox.value:
             self._lasso_selection_checkbox.value = False
         if "Lasso Selection" in self._viewer.layers:
@@ -928,13 +954,12 @@ class CellsLayerEditorWidget(Container):
         self.input_layer.metadata["_is_dirty"] = True
 
         # Reset the button visibility
-        self._edition_mode_combo.visible = True
+        self._edition_mode_choice.visible = True
         self._edition_mode_row.visible = True
         self._edit_cells_geometries_button.visible = True
         self._save_all_layers_button.visible = True
         self._cancel_cells_geometries_button.visible = False
         self._apply_cells_geometries_button.visible = False
-        self._undo_button.visible = False
 
         self._restore_dims_scroll()
         self._restore_original_visibility()
