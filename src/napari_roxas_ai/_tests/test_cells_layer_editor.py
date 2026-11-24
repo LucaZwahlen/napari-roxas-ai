@@ -17,6 +17,13 @@ from napari_roxas_ai._edition._cells_layer_editor import (
 )
 from napari_roxas_ai._job_runner import JobHandle
 from napari_roxas_ai._jobs import Job
+from napari_roxas_ai._edition._tools import (
+    DELETE,
+    LASSO,
+    LINE_SELECT,
+    VECTOR,
+    LassoSelectTool,
+)
 
 
 def test_cells_layer_editor_lasso_selection_and_deletion(make_napari_viewer, qtbot):
@@ -26,243 +33,36 @@ def test_cells_layer_editor_lasso_selection_and_deletion(make_napari_viewer, qtb
     data = np.zeros((50, 50), dtype=np.uint8)
     data[5:15, 5:15] = 1   # Cell 1 (top-left)
     data[30:40, 30:40] = 1 # Cell 2 (bottom-right)
-
     cells_layer = viewer.add_labels(data, name="sample.cells")
 
     widget = CellsLayerEditorWidget(viewer)
     widget.show()
-
-    # Initially lasso container should be hidden
-    assert not widget._lasso_container.visible
-    assert not widget._lasso_selection_checkbox.visible
-    assert not widget._delete_lasso_cells_button.visible
-
-    # Set mode to Vector and enter edit mode
     widget._edition_mode_choice.value = "Vector"
     widget._edit_cells_geometries()
-
-    # Wait for the background vectorization worker to complete
     qtbot.wait_until(
         lambda: "Cells Modification" in viewer.layers and isinstance(viewer.layers["Cells Modification"], Shapes),
         timeout=5000,
     )
-
-    # In vector edit mode, lasso container is visible with checkbox unchecked
-    assert widget._lasso_container.visible
-    assert widget._lasso_selection_checkbox.visible
-    assert not widget._lasso_selection_checkbox.value
-    assert not widget._delete_lasso_cells_button.visible
-    assert "Cells Modification" in viewer.layers
     edit_layer = viewer.layers["Cells Modification"]
-    assert isinstance(edit_layer, Shapes)
     assert len(edit_layer.data) == 2
 
-    # Toggle lasso select ON
-    widget._lasso_selection_checkbox.value = True
-    assert widget._delete_lasso_cells_button.visible
-    assert "Lasso Selection" in viewer.layers
-    lasso_layer = viewer.layers["Lasso Selection"]
-    assert lasso_layer.mode == "add_polygon_lasso"
-    assert viewer.layers.selection.active == lasso_layer
+    # The lasso and line select are tools of the vector toolbar
+    toolbar = widget._edit_tools._tools[VECTOR].toolbar
+    assert LASSO in toolbar._buttons
+    assert LINE_SELECT in toolbar._buttons
 
-    # Draw a lasso polygon covering Cell 1 (around [5:15, 5:15])
-    lasso_poly = np.array([
-        [0, 0],
-        [0, 20],
-        [20, 20],
-        [20, 0]
-    ], dtype=np.float32)
-    lasso_layer.data = [lasso_poly]
-
-    # Execute deletion
-    widget._execute_lasso_deletion()
-
-    # Check that Cell 1 was deleted and only Cell 2 remains
+    # Cell 1 selected (as a lasso around it does), Delete removes it
+    lasso = np.array([[0, 0], [0, 20], [20, 20], [20, 0]], dtype=np.float32)
+    edit_layer.selected_data = LassoSelectTool.hits(edit_layer.data, lasso)
+    assert len(edit_layer.selected_data) == 1
+    toolbar._buttons[DELETE].click()
     assert len(edit_layer.data) == 1
-    # Checkbox should be reset to False
-    assert not widget._lasso_selection_checkbox.value
-    assert not widget._delete_lasso_cells_button.visible
 
     # Apply changes
     widget._apply_cells_geometries()
-    assert not widget._lasso_container.visible
     assert "Cells Modification" not in viewer.layers
     assert np.any(cells_layer.data[30:40, 30:40] > 0)
     assert np.all(cells_layer.data[5:15, 5:15] == 0)
-
-
-def test_lasso_delete_vertex_criteria(make_napari_viewer, qtbot):
-    """
-    Test specific vertex criteria:
-    1. Cell completely inside lasso -> deleted
-    2. Cell completely outside lasso -> retained
-    3. One cell vertex inside lasso -> deleted
-    4. Lasso crosses cell edges but no cell vertex inside -> retained
-    5. Cell vertex on lasso boundary -> deleted
-    6. Multiple cells inside/outside
-    7. Lasso near image boundary
-    """
-    viewer = make_napari_viewer()
-    data = np.zeros((100, 100), dtype=np.uint8)
-    data[0:5, 0:5] = 1 # dummy layer
-    viewer.add_labels(data, name="sample.cells")
-
-    widget = CellsLayerEditorWidget(viewer)
-    widget.show()
-    widget._edition_mode_choice.value = "Vector"
-    widget._edit_cells_geometries()
-
-    qtbot.wait_until(
-        lambda: "Cells Modification" in viewer.layers,
-        timeout=5000,
-    )
-
-    edit_layer = viewer.layers["Cells Modification"]
-    widget._lasso_selection_checkbox.value = True
-    lasso_layer = viewer.layers["Lasso Selection"]
-
-    # Define cells:
-    # Cell 1: Completely inside lasso [20, 20] to [40, 40] -> polygon [25, 25], [25, 35], [35, 35], [35, 25]
-    cell_inside = np.array([[25, 25], [25, 35], [35, 35], [35, 25]], dtype=np.float32)
-
-    # Cell 2: Completely outside lasso -> polygon [70, 70], [70, 80], [80, 80], [80, 70]
-    cell_outside = np.array([[70, 70], [70, 80], [80, 80], [80, 70]], dtype=np.float32)
-
-    # Cell 3: One vertex inside lasso -> polygon [38, 38] (inside), [50, 60], [60, 60], [60, 50]
-    cell_one_vertex_inside = np.array([[38, 38], [50, 60], [60, 60], [60, 50]], dtype=np.float32)
-
-    # Cell 4: Large cell spanning [10, 28] to [50, 32] (lasso [20, 20] to [40, 40] crosses it, but vertices are at row 10 and row 50, outside lasso)
-    cell_crossing_no_vertex = np.array([[10, 28], [10, 32], [50, 32], [50, 28]], dtype=np.float32)
-
-    # Cell 5: Exactly on boundary vertex -> polygon [20, 30] (on boundary of lasso row 20), [15, 25], [15, 35]
-    cell_on_boundary = np.array([[20, 30], [15, 25], [15, 35]], dtype=np.float32)
-
-    edit_layer.data = [
-        cell_inside,
-        cell_outside,
-        cell_one_vertex_inside,
-        cell_crossing_no_vertex,
-        cell_on_boundary,
-    ]
-
-    # Lasso polygon from [20, 20] to [40, 40]
-    lasso_poly = np.array([
-        [20, 20],
-        [20, 40],
-        [40, 40],
-        [40, 20]
-    ], dtype=np.float32)
-    lasso_layer.data = [lasso_poly]
-
-    widget._execute_lasso_deletion()
-
-    # cell_inside -> deleted
-    # cell_outside -> retained
-    # cell_one_vertex_inside -> deleted
-    # cell_crossing_no_vertex -> retained
-    # cell_on_boundary -> deleted
-    remaining = edit_layer.data
-    assert len(remaining) == 2
-
-    # Verify retained cells are cell_outside and cell_crossing_no_vertex
-    assert np.allclose(remaining[0], cell_outside)
-    assert np.allclose(remaining[1], cell_crossing_no_vertex)
-
-
-def test_lasso_near_boundary(make_napari_viewer, qtbot):
-    viewer = make_napari_viewer()
-    data = np.zeros((100, 100), dtype=np.uint8)
-    data[0:5, 0:5] = 1
-    viewer.add_labels(data, name="sample.cells")
-
-    widget = CellsLayerEditorWidget(viewer)
-    widget.show()
-    widget._edition_mode_choice.value = "Vector"
-    widget._edit_cells_geometries()
-
-    qtbot.wait_until(
-        lambda: "Cells Modification" in viewer.layers,
-        timeout=5000,
-    )
-
-    edit_layer = viewer.layers["Cells Modification"]
-    widget._lasso_selection_checkbox.value = True
-    lasso_layer = viewer.layers["Lasso Selection"]
-
-    # Lasso at the top-left boundary including (0, 0)
-    lasso_poly = np.array([
-        [0, 0],
-        [0, 10],
-        [10, 10],
-        [10, 0]
-    ], dtype=np.float32)
-    lasso_layer.data = [lasso_poly]
-
-    cell_near_0 = np.array([[0, 0], [0, 5], [5, 5], [5, 0]], dtype=np.float32)
-    cell_away = np.array([[50, 50], [50, 60], [60, 60], [60, 50]], dtype=np.float32)
-    edit_layer.data = [cell_near_0, cell_away]
-
-    widget._execute_lasso_deletion()
-
-    assert len(edit_layer.data) == 1
-    assert np.allclose(edit_layer.data[0], cell_away)
-
-
-def test_overlapping_lassos_deletion(make_napari_viewer, qtbot):
-    viewer = make_napari_viewer()
-    data = np.zeros((100, 100), dtype=np.uint8)
-    data[0:5, 0:5] = 1
-    viewer.add_labels(data, name="sample.cells")
-
-    widget = CellsLayerEditorWidget(viewer)
-    widget.show()
-    widget._edition_mode_choice.value = "Vector"
-    widget._edit_cells_geometries()
-
-    qtbot.wait_until(
-        lambda: "Cells Modification" in viewer.layers,
-        timeout=5000,
-    )
-
-    edit_layer = viewer.layers["Cells Modification"]
-    widget._lasso_selection_checkbox.value = True
-    lasso_layer = viewer.layers["Lasso Selection"]
-
-    # Two overlapping lasso polygons:
-    # Lasso 1: [10, 10] to [40, 40]
-    lasso_1 = np.array([
-        [10, 10],
-        [10, 40],
-        [40, 40],
-        [40, 10]
-    ], dtype=np.float32)
-
-    # Lasso 2: [30, 30] to [60, 60] (overlaps with lasso_1 in [30, 30]..[40, 40])
-    lasso_2 = np.array([
-        [30, 30],
-        [30, 60],
-        [60, 60],
-        [60, 30]
-    ], dtype=np.float32)
-
-    lasso_layer.data = [lasso_1, lasso_2]
-
-    # Cell in lasso 1 only: [15, 15]..[25, 25]
-    cell_lasso1_only = np.array([[15, 15], [15, 25], [25, 25], [25, 15]], dtype=np.float32)
-    # Cell in lasso 2 only: [45, 45]..[55, 55]
-    cell_lasso2_only = np.array([[45, 45], [45, 55], [55, 55], [55, 45]], dtype=np.float32)
-    # Cell in the intersection: [32, 32]..[38, 38]
-    cell_intersection = np.array([[32, 32], [32, 38], [38, 38], [38, 32]], dtype=np.float32)
-    # Cell outside both: [80, 80]..[90, 90]
-    cell_outside = np.array([[80, 80], [80, 90], [90, 90], [90, 80]], dtype=np.float32)
-
-    edit_layer.data = [cell_lasso1_only, cell_lasso2_only, cell_intersection, cell_outside]
-
-    widget._execute_lasso_deletion()
-
-    # All three cells in lasso1, lasso2, and their intersection should be deleted
-    assert len(edit_layer.data) == 1
-    assert np.allclose(edit_layer.data[0], cell_outside)
 
 
 def test_layer_visibility_management_on_edit_and_cancel(make_napari_viewer, qtbot):
@@ -329,56 +129,6 @@ def test_layer_visibility_management_on_apply_and_initially_hidden(make_napari_v
     # .rings restored to True, rings years restored to its original False
     assert rings_layer.visible
     assert not rings_years_layer.visible
-
-
-def test_delete_selected_cells_button_enabled_disabled_state(make_napari_viewer, qtbot):
-    viewer = make_napari_viewer()
-    data = np.zeros((50, 50), dtype=np.uint8)
-    data[5:15, 5:15] = 1
-    viewer.add_labels(data, name="sample.cells")
-
-    widget = CellsLayerEditorWidget(viewer)
-    widget.show()
-    widget._edition_mode_choice.value = "Vector"
-    widget._edit_cells_geometries()
-
-    qtbot.wait_until(
-        lambda: "Cells Modification" in viewer.layers,
-        timeout=5000,
-    )
-
-    # Initially hidden and enabled
-    assert not widget._delete_lasso_cells_button.visible
-    assert widget._delete_lasso_cells_button.enabled
-
-    # Toggle lasso on -> button visible and enabled
-    widget._lasso_selection_checkbox.value = True
-    assert widget._delete_lasso_cells_button.visible
-    assert widget._delete_lasso_cells_button.enabled
-
-    # Add a lasso shape
-    lasso_layer = viewer.layers["Lasso Selection"]
-    lasso_layer.data = [np.array([[0, 0], [0, 20], [20, 20], [20, 0]], dtype=np.float32)]
-
-    # Mock or wrap _execute_lasso_deletion to check intermediate disabled state if desired, or test direct execution
-    btn_disabled_during_exec = False
-    original_shapes = viewer.layers["Cells Modification"].data
-
-    def check_state_during_exec():
-        nonlocal btn_disabled_during_exec
-        btn_disabled_during_exec = not widget._delete_lasso_cells_button.enabled
-
-    # Execute deletion
-    widget._execute_lasso_deletion()
-
-    # After deletion, lasso selection checkbox is reset to False, button is hidden and re-enabled
-    assert not widget._delete_lasso_cells_button.visible
-    assert widget._delete_lasso_cells_button.enabled
-
-    # When lasso is enabled again, button should be visible and enabled
-    widget._lasso_selection_checkbox.value = True
-    assert widget._delete_lasso_cells_button.visible
-    assert widget._delete_lasso_cells_button.enabled
 
 
 def test_save_all_layers_button_lifecycle_and_callback(make_napari_viewer, qtbot, monkeypatch):
@@ -479,27 +229,6 @@ def _start_raster_editing(viewer, data):
     return widget, cells_layer, viewer.layers["Cells Modification"]
 
 
-def test_backspace_triggers_lasso_deletion(make_napari_viewer, qtbot):
-    viewer = make_napari_viewer()
-    data = np.zeros((50, 50), dtype=np.uint8)
-    data[5:15, 5:15] = 1
-    data[30:40, 30:40] = 1
-    widget, edit_layer = _start_vector_editing(viewer, qtbot, data)
-
-    widget._lasso_selection_checkbox.value = True
-    lasso_layer = viewer.layers["Lasso Selection"]
-    lasso_layer.data = [np.array([[0, 0], [0, 20], [20, 20], [20, 0]], dtype=np.float32)]
-
-    # Both Delete and Backspace (macOS) are bound to the lasso deletion
-    keymap = {str(key): func for key, func in viewer.keymap.items()}
-    assert "Delete" in keymap
-    assert "Backspace" in keymap
-    keymap["Backspace"](viewer)
-
-    assert len(edit_layer.data) == 1
-    assert not widget._lasso_selection_checkbox.value
-
-
 def test_undo_button_lifecycle_and_vector_undo(make_napari_viewer, qtbot):
     viewer = make_napari_viewer()
     data = np.zeros((50, 50), dtype=np.uint8)
@@ -514,12 +243,10 @@ def test_undo_button_lifecycle_and_vector_undo(make_napari_viewer, qtbot):
     assert not widget._edit_tools._undo_enabled  # nothing to undo yet
     original_shapes = [np.array(d, copy=True) for d in edit_layer.data]
 
-    # Lasso deletion is a single undo step
-    widget._lasso_selection_checkbox.value = True
-    viewer.layers["Lasso Selection"].data = [
-        np.array([[0, 0], [0, 20], [20, 20], [20, 0]], dtype=np.float32)
-    ]
-    widget._execute_lasso_deletion()
+    # Deleting the lassoed cell is a single undo step
+    lasso = np.array([[0, 0], [0, 20], [20, 20], [20, 0]], dtype=np.float32)
+    edit_layer.selected_data = LassoSelectTool.hits(edit_layer.data, lasso)
+    edit_layer.remove_selected()
     assert len(edit_layer.data) == 1
 
     # A newly drawn polygon is another undo step

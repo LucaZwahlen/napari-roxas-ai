@@ -1,28 +1,46 @@
 """
-Editing tools: the tools panel of the edit sessions (napari's Labels and
-Shapes tools, our own custom tools, tool and layer options).
+Editing tools: the tools panel of the edit sessions.
+
+- ``napari_tools/``: napari's own Labels and Shapes tools we offer;
+- ``custom_tools/``: our own tools (lasso, line select);
+- ``options/``: tool and layer options;
+- ``_controller``: binds a toolbar to a layer (``LayerTools``), ``CustomTool``;
+- ``_toolbar``, ``_panel``: the widgets.
 """
 
-from ._controller import (
+from ._controller import UNDO, UNDO_ACTION, CustomTool, LayerTools
+from ._panel import PIXEL, VECTOR, EditToolsPanel
+from ._toolbar import ToolBar, ToolSpec
+from .custom_tools import (
+    LASSO,
+    LASSO_TOOL,
+    LINE_SELECT,
+    LINE_SELECT_TOOL,
+    OUTLINE_LAYER_NAME,
+    LassoSelectTool,
+    LineSelectTool,
+    SelectionOutline,
+    StrokeSelectTool,
+)
+from .napari_tools import (
     DELETE,
     LABELS_TOOLS,
     SHAPES_ACTIONS,
     SHAPES_TOOLS,
-    UNDO,
-    UNDO_ACTION,
-    CustomTool,
-    LayerTools,
     labels_rows,
     shapes_action_states,
     shapes_actions,
     shapes_rows,
 )
-from ._panel import PIXEL, VECTOR, EditToolsPanel
-from ._toolbar import ToolBar, ToolSpec
 
 __all__ = [
     "DELETE",
     "LABELS_TOOLS",
+    "LASSO",
+    "LASSO_TOOL",
+    "LINE_SELECT",
+    "LINE_SELECT_TOOL",
+    "OUTLINE_LAYER_NAME",
     "PIXEL",
     "SHAPES_ACTIONS",
     "SHAPES_TOOLS",
@@ -31,7 +49,11 @@ __all__ = [
     "VECTOR",
     "CustomTool",
     "EditToolsPanel",
+    "LassoSelectTool",
+    "LineSelectTool",
     "LayerTools",
+    "SelectionOutline",
+    "StrokeSelectTool",
     "ToolBar",
     "ToolSpec",
     "labels_rows",

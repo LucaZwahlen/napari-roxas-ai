@@ -2,10 +2,8 @@ from collections.abc import Callable, Sequence
 
 from magicgui.widgets import Container
 
-from ._controller import (
-    UNDO,
-    CustomTool,
-    LayerTools,
+from ._controller import UNDO, CustomTool, LayerTools
+from .napari_tools import (
     labels_rows,
     shapes_action_states,
     shapes_actions,

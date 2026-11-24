@@ -1,12 +1,17 @@
+"""
+LayerTools: binds a ToolBar to one napari layer, in sync both ways with the
+layer's mode (napari's tools are only selected, ``layer.mode = name``).
+CustomTool: the base of our own tools. UNDO_ACTION: the editor's undo button.
+"""
+
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
 from qtpy.QtCore import QTimer
 
-from ._toolbar import ToolBar, ToolRows, ToolSpec
+from ._toolbar import ToolBar, ToolSpec
 
-DELETE = "delete"
 UNDO = "undo"
 
 # Undo of the edit session: the editor's own undo (``EditToolsPanel.set_undo``)
@@ -36,82 +41,6 @@ class CustomTool:
 
     def deactivate(self, tools: "LayerTools", layer) -> None:
         raise NotImplementedError
-
-
-# napari's Shapes modes offered for polygon editing (no layer transform, ellipses, lines, paths)
-SHAPES_TOOLS = {
-    "pan_zoom": ToolSpec("pan_zoom", "pan_arrows", "Pan/zoom"),
-    "select": ToolSpec("select", "select", "Select shapes"),
-    "direct": ToolSpec("direct", "direct", "Select vertices"),
-    "vertex_insert": ToolSpec(
-        "vertex_insert", "vertex_insert", "Insert vertex"
-    ),
-    "vertex_remove": ToolSpec(
-        "vertex_remove", "vertex_remove", "Remove vertex"
-    ),
-    "add_rectangle": ToolSpec("add_rectangle", "rectangle", "Add rectangles"),
-    "add_polygon": ToolSpec("add_polygon", "polygon", "Add polygons"),
-    "add_polygon_lasso": ToolSpec(
-        "add_polygon_lasso", "polygon_lasso", "Add polygons with a lasso"
-    ),
-}
-
-# napari's Labels modes offered (no layer transform)
-LABELS_TOOLS = {
-    "pan_zoom": ToolSpec("pan_zoom", "pan_arrows", "Pan/zoom"),
-    "pick": ToolSpec("pick", "picker", "Pick a label"),
-    "paint": ToolSpec("paint", "paint", "Paint"),
-    "polygon": ToolSpec("polygon", "polygon", "Draw a polygon label"),
-    "fill": ToolSpec("fill", "fill", "Fill"),
-    "erase": ToolSpec("erase", "erase", "Erase"),
-}
-
-SHAPES_ACTIONS = {
-    DELETE: ToolSpec(
-        DELETE, "delete_shape", "Delete selected (Delete)", checkable=False
-    ),
-}
-
-
-def shapes_rows(custom: Sequence[CustomTool] = ()) -> ToolRows:
-    """napari's Shapes tools; custom tools follow the selection tools."""
-    t = SHAPES_TOOLS
-    return [
-        [
-            t["pan_zoom"],
-            t["select"],
-            *(tool.spec for tool in custom),
-            t["direct"],
-            t["vertex_insert"],
-            t["vertex_remove"],
-            None,
-            SHAPES_ACTIONS[DELETE],
-            UNDO_ACTION,
-        ],
-        [
-            t["add_rectangle"],
-            t["add_polygon"],
-            t["add_polygon_lasso"],
-        ],
-    ]
-
-
-def labels_rows(custom: Sequence[CustomTool] = ()) -> ToolRows:
-    """napari's Labels tools, then the custom tools."""
-    t = LABELS_TOOLS
-    row = [
-        t["pan_zoom"],
-        t["pick"],
-        t["paint"],
-        t["polygon"],
-        t["fill"],
-        t["erase"],
-        None,
-        UNDO_ACTION,
-    ]
-    if custom:
-        row += [None, *(tool.spec for tool in custom)]
-    return [row]
 
 
 class LayerTools:
@@ -276,13 +205,3 @@ class LayerTools:
         states = self._action_states(layer) if layer is not None else {}
         for name in self._actions:
             self._toolbar.set_enabled(name, bool(states.get(name, False)))
-
-
-def shapes_actions() -> dict[str, Callable]:
-    """Handlers of the Shapes action buttons."""
-    return {DELETE: lambda layer: layer.remove_selected()}
-
-
-def shapes_action_states(layer) -> dict[str, bool]:
-    selected = len(layer.selected_data) > 0
-    return {DELETE: selected}
