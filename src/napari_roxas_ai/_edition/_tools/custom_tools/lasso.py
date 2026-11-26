@@ -8,8 +8,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ._stroke import StrokeSelectTool
 from .._toolbar import ToolSpec
+from ._stroke import StrokeSelectTool
 
 LASSO = "lasso_select"
 
@@ -17,6 +17,8 @@ LASSO_TOOL = ToolSpec(
     LASSO,
     str(Path(__file__).parent.parent / "icons" / "lasso_select.svg"),
     "Lasso select",
+    shortcut="S",
+    attributes_descriptor="Shift+Click to add to current selection",
 )
 
 

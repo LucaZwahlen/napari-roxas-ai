@@ -137,6 +137,16 @@ def test_lasso_without_outline_still_selects(tools):
     assert tools.layer.selected_data == {0}
 
 
+def test_lasso_shortcut_while_attached(tools):
+    keymap = {str(key): func for key, func in tools.layer.keymap.items()}
+    keymap["S"](tools.layer)
+    assert tools.toolbar.checked == LASSO
+
+    # Released with the layer: napari's own S again
+    tools.tools.detach()
+    assert "S" not in {str(key) for key in tools.layer.keymap}
+
+
 def test_lasso_selection_is_napari_selection(tools):
     tools.toolbar._buttons[LASSO].click()
     drag, event = _press(tools.layer, AROUND_FIRST[0])
@@ -247,6 +257,18 @@ def test_lasso_turned_off_by_a_mode_chosen_elsewhere(tools):
 
     assert tools.toolbar.checked == "direct"
     assert tools.layer.cursor != "cross"
+
+
+def test_mode_not_offered_keeps_the_lasso(tools):
+    tools.toolbar._buttons[LASSO].click()
+    _draw_lasso(tools.layer, AROUND_FIRST)
+    tools.layer.mode = "add_rectangle"  # e.g. napari's shortcut
+    _settle(tools.qtbot)
+
+    assert tools.toolbar.checked == LASSO
+    assert tools.layer.mode == "select"
+    assert tools.layer.cursor == "cross"
+    assert tools.layer.selected_data == {0}
 
 
 def test_lasso_turned_off_when_another_layer_gets_active(tools):

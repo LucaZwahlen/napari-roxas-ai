@@ -3,8 +3,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from ._stroke import StrokeSelectTool
 from .._toolbar import ToolSpec
+from ._stroke import StrokeSelectTool
 
 LINE_SELECT = "line_select"
 
@@ -12,6 +12,8 @@ LINE_SELECT_TOOL = ToolSpec(
     LINE_SELECT,
     str(Path(__file__).parent.parent / "icons" / "line_select.svg"),
     "Line select: selects what the line crosses",
+    shortcut="L",
+    attributes_descriptor="Shift+Click to add to current selection",
 )
 
 

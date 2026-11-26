@@ -19,8 +19,9 @@ UNDO = "undo"
 UNDO_ACTION = ToolSpec(
     UNDO,
     str(Path(__file__).parent / "icons" / "undo.svg"),
-    "Undo last change (Ctrl+Z)",
+    "Undo last change",
     checkable=False,
+    shortcut="Control-Z",  # bound by the editor
 )
 
 
@@ -48,7 +49,9 @@ class LayerTools:
     """
     The tools of ``toolbar`` acting on the attached layer.
 
-    Enforcing a 2-way sync with naparis editing tools.
+    Enforcing a 2-way sync with naparis editing tools. While attached, only
+    the toolbar's tools can be used: a napari mode it doesn't offer (e.g.
+    picked with a napari shortcut) is switched back right away.
     """
 
     def __init__(
@@ -69,6 +72,8 @@ class LayerTools:
         self._active_custom: CustomTool | None = None
         # Mode changes made here (not by the user)
         self._setting_mode = False
+        # The napari tool in use, switched back to from a mode not offered
+        self._mode = "pan_zoom"
 
         toolbar.tool_changed.connect(
             self.select_tool
@@ -92,6 +97,8 @@ class LayerTools:
     def attach(self, layer) -> None:
         self.detach()
         self._layer = layer
+        mode = str(layer.mode)
+        self._mode = mode if self._offers(mode) else "pan_zoom"
         layer.events.mode.connect(
             self._on_layer_mode
         )  # napari -> button selection sync
@@ -101,6 +108,13 @@ class LayerTools:
             self._on_active_layer
         )
         self._viewer.layers.events.removed.connect(self._on_layer_removed)
+        # On the layer: over napari's shortcuts of the same keys
+        for name, key in self._shortcuts().items():
+            layer.bind_key(
+                key,
+                lambda _layer, name=name: self.select_tool(name),
+                overwrite=True,
+            )
         self._sync_checked()
         self.update_actions()
 
@@ -109,6 +123,8 @@ class LayerTools:
         if layer is None:
             return
         self._deactivate_custom(layer)
+        for key in self._shortcuts().values():
+            layer.bind_key(key, None)
         layer.events.mode.disconnect(self._on_layer_mode)
         if hasattr(layer.events, "highlight"):
             layer.events.highlight.disconnect(self.update_actions)
@@ -117,6 +133,14 @@ class LayerTools:
         )
         self._viewer.layers.events.removed.disconnect(self._on_layer_removed)
         self._toolbar.set_checked(None)
+
+    def _shortcuts(self) -> dict[str, str]:
+        """The keys of the custom tools, per tool name."""
+        return {
+            name: tool.spec.shortcut
+            for name, tool in self._custom.items()
+            if tool.spec.shortcut
+        }
 
     # -- Tools --
 
@@ -137,7 +161,8 @@ class LayerTools:
                 self._active_custom = tool
                 tool.activate(self, layer)
         else:
-            self.set_mode(layer, name or "pan_zoom")
+            self._mode = name or "pan_zoom"
+            self.set_mode(layer, self._mode)
         self._sync_checked()
 
     def set_mode(self, layer, mode: str) -> None:
@@ -167,12 +192,41 @@ class LayerTools:
         else:
             self._toolbar.set_checked(str(layer.mode))
 
+    def _offers(self, mode: str) -> bool:
+        # pan_zoom: napari's own fallback (e.g. on hiding the layer)
+        napari_tools = self._toolbar.tools - self._custom.keys()
+        return mode == "pan_zoom" or mode in napari_tools
+
     def _on_layer_mode(self, _event=None) -> None:
-        if self._setting_mode or self._layer is None:
+        layer = self._layer
+        if self._setting_mode or layer is None:
             return
-        # A mode chosen elsewhere (e.g. napari's layer controls)
-        self._deactivate_custom(self._layer)
+        mode = str(layer.mode)
+        if not self._offers(mode):
+            self._switch_back(layer)
+            return
+        # A tool chosen elsewhere (e.g. napari's layer controls)
+        self._mode = mode
+        self._deactivate_custom(layer)
         self._sync_checked()
+
+    def _switch_back(self, layer) -> None:
+        """Back to the tool in use, from a mode the toolbar doesn't offer."""
+        # Kept: napari's Shapes clear it after a switch to a drawing mode
+        selected = set(getattr(layer, "selected_data", ()))
+        tool = self._active_custom
+        if tool is not None:
+            # Activated again, it sets its own mode
+            tool.deactivate(self, layer)
+            tool.activate(self, layer)
+        else:
+            self.set_mode(layer, self._mode)
+        if selected:
+            QTimer.singleShot(0, lambda: self._reselect(layer, selected))
+
+    def _reselect(self, layer, selected: set[int]) -> None:
+        if layer is self._layer and not layer.selected_data:
+            layer.selected_data = {i for i in selected if i < len(layer.data)}
 
     def _on_active_layer(self, _event=None) -> None:
         # Checked once the active layer settled: layers added by tools (e.g.

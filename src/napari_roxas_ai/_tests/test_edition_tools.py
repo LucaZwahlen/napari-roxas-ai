@@ -43,6 +43,14 @@ def test_mode_chosen_elsewhere_checks_its_button(session):
     assert not _button(panel, PIXEL, "paint").isChecked()
 
 
+def test_mode_not_offered_is_switched_back(session):
+    panel, labels = session
+    _button(panel, PIXEL, "paint").click()
+    labels.mode = "fill"  # e.g. napari's shortcut: not in the toolbar
+    assert labels.mode == "paint"
+    assert _button(panel, PIXEL, "paint").isChecked()
+
+
 def test_options_sync_both_ways(session):
     panel, labels = session
     widgets = panel._options[PIXEL]._widgets
@@ -78,3 +86,19 @@ def test_undo_button_runs_the_editor_undo(session):
     assert undo.isEnabled()
     undo.click()
     assert undone == [True]
+
+
+def test_tooltips_show_napari_shortcuts_from_preferences(session):
+    from napari.settings import get_settings
+
+    panel, _labels = session
+    shortcuts = get_settings().shortcuts
+    previous = dict(shortcuts.shortcuts)
+    try:
+        shortcuts.shortcuts = {
+            **previous,
+            "napari:activate_labels_paint_mode": ["Q"],
+        }
+        assert _button(panel, PIXEL, "paint").toolTip() == "Paint (Q)"
+    finally:
+        shortcuts.shortcuts = previous

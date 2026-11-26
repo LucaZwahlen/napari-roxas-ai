@@ -4,6 +4,8 @@ from functools import partial
 
 from magicgui.widgets import Container
 from napari.resources import get_colorized_svg, get_icon_path
+from napari.settings import get_settings
+from napari.utils.interactions import Shortcut
 from napari.utils.theme import darken, get_theme
 from psygnal import Signal
 from qtpy.QtCore import QByteArray, QSize, Qt
@@ -23,12 +25,38 @@ class ToolSpec:
 
     ``icon`` is a napari icon name or the path to an svg file. A checkable
     button is a tool (only one is checked at a time); otherwise an action.
+    The tooltip shows its shortcut: ``shortcut`` (for a custom tool, bound on
+    the attached layer by ``LayerTools``), or else the shortcut of the napari
+    ``action`` it stands for, as set in napari's preferences.
+    ``attributes_descriptor``: a second tooltip line, e.g. how modifiers
+    change what the tool does.
     """
 
     name: str
     icon: str
     tooltip: str
     checkable: bool = True
+    shortcut: str | None = None
+    action: str | None = None
+    attributes_descriptor: str | None = None
+
+    def keys(self) -> list:
+        if self.shortcut:
+            return [self.shortcut]
+        if self.action:
+            return list(
+                get_settings().shortcuts.shortcuts.get(self.action, [])
+            )
+        return []
+
+    def full_tooltip(self) -> str:
+        tooltip = self.tooltip
+        keys = self.keys()
+        if keys:
+            tooltip += f" ({' or '.join(str(Shortcut(k)) for k in keys)})"
+        if self.attributes_descriptor:
+            tooltip += f"\n{self.attributes_descriptor}"
+        return tooltip
 
 
 # None in a row adds a separator
@@ -94,13 +122,19 @@ class ToolBar(Container):
 
         viewer.events.theme.connect(self._apply_theme)
         self._apply_theme()
+        # Shortcuts changed in napari's preferences
+        shortcuts = get_settings().shortcuts.events.shortcuts
+        shortcuts.connect(self._update_tooltips)
+        self.native.destroyed.connect(
+            lambda: shortcuts.disconnect(self._update_tooltips)
+        )
 
     def _make_button(self, spec: ToolSpec) -> QToolButton:
         button = QToolButton()
         button.setObjectName("roxasToolButton")
         button.setFixedSize(BUTTON_SIZE, BUTTON_SIZE)
         button.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
-        button.setToolTip(spec.tooltip)
+        button.setToolTip(spec.full_tooltip())
         button.setCheckable(spec.checkable)
         if spec.checkable:
             button.clicked.connect(partial(self._on_tool_clicked, spec.name))
@@ -115,6 +149,15 @@ class ToolBar(Container):
     @property
     def checked(self) -> str | None:
         return self._checked
+
+    def _update_tooltips(self, _event=None) -> None:
+        for name, button in self._buttons.items():
+            button.setToolTip(self._specs[name].full_tooltip())
+
+    @property
+    def tools(self) -> frozenset[str]:
+        """The names of the tools (checkable buttons)."""
+        return frozenset(n for n, s in self._specs.items() if s.checkable)
 
     def set_checked(self, name: str | None) -> None:
         """Check the tool ``name`` (None, or not a tool: none) silently."""
