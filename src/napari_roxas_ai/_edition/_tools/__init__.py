@@ -5,6 +5,7 @@ Editing tools: the tools panel of the edit sessions.
 - ``custom_tools/``: our own tools (lasso, line select);
 - ``options/``: tool and layer options;
 - ``_controller``: binds a toolbar to a layer (``LayerTools``), ``CustomTool``;
+- ``_companion``: layers belonging to another layer (``CompanionLayer``);
 - ``_toolbar``, ``_panel``: the widgets.
 """
 
@@ -16,7 +17,6 @@ from .custom_tools import (
     LASSO_TOOL,
     LINE_SELECT,
     LINE_SELECT_TOOL,
-    OUTLINE_LAYER_NAME,
     LassoSelectTool,
     LineSelectTool,
     SelectionOutline,
@@ -40,7 +40,6 @@ __all__ = [
     "LASSO_TOOL",
     "LINE_SELECT",
     "LINE_SELECT_TOOL",
-    "OUTLINE_LAYER_NAME",
     "PIXEL",
     "SHAPES_ACTIONS",
     "SHAPES_TOOLS",

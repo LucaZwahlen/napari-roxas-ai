@@ -5,10 +5,10 @@ import pytest
 
 from napari_roxas_ai._edition._tools import (
     LASSO,
-    OUTLINE_LAYER_NAME,
     LassoSelectTool,
-    LineSelectTool,
     LayerTools,
+    LineSelectTool,
+    SelectionOutline,
     ToolBar,
     shapes_action_states,
     shapes_actions,
@@ -34,6 +34,7 @@ def tools(make_napari_viewer, qtbot):
         return real_hits(shapes, points)
 
     lasso.hits = hits
+    outline = SelectionOutline.add(viewer, layer)
     toolbar = ToolBar(viewer, shapes_rows([lasso]))
     shapes_tools = LayerTools(
         viewer,
@@ -49,6 +50,7 @@ def tools(make_napari_viewer, qtbot):
         toolbar=toolbar,
         tools=shapes_tools,
         lasso=lasso,
+        outline=outline,
         lassos=lassos,
         qtbot=qtbot,
     )
@@ -108,7 +110,8 @@ def test_lasso_is_napari_select_mode(tools):
     assert tools.layer.cursor == "cross"
     # Runs before napari's select drag
     assert tools.layer.mouse_drag_callbacks[0] == tools.lasso._on_drag
-    assert OUTLINE_LAYER_NAME in tools.viewer.layers
+    assert tools.outline.layer in tools.viewer.layers
+    assert tools.outline.layer.name == f"[{tools.layer.name}] - overlay"
     # The outline does not take over the active layer
     assert tools.viewer.layers.selection.active is tools.layer
 
@@ -116,7 +119,6 @@ def test_lasso_is_napari_select_mode(tools):
     tools.toolbar._buttons["direct"].click()
     assert tools.layer.mode == "direct"
     assert tools.toolbar.checked == "direct"
-    assert OUTLINE_LAYER_NAME not in tools.viewer.layers
     assert tools.lasso._on_drag not in tools.layer.mouse_drag_callbacks
     assert tools.layer.cursor != "cross"
 
@@ -125,6 +127,14 @@ def test_lasso_is_napari_select_mode(tools):
     tools.toolbar._buttons[LASSO].click()
     assert tools.layer.mode == "pan_zoom"
     assert tools.layer.mouse_pan
+
+
+def test_lasso_without_outline_still_selects(tools):
+    tools.outline.remove()
+    tools.toolbar._buttons[LASSO].click()
+    _draw_lasso(tools.layer, AROUND_FIRST)
+
+    assert tools.layer.selected_data == {0}
 
 
 def test_lasso_selection_is_napari_selection(tools):
@@ -136,7 +146,7 @@ def test_lasso_selection_is_napari_selection(tools):
     assert tools.lasso.is_drawing
     assert tools.layer.mode == "pan_zoom"
     assert not tools.layer.mouse_pan
-    outline = tools.viewer.layers[OUTLINE_LAYER_NAME]
+    outline = tools.outline.layer
     for point in AROUND_FIRST[1:]:
         _move(drag, event, point)
     # One closed outline through the lasso's points
@@ -236,7 +246,6 @@ def test_lasso_turned_off_by_a_mode_chosen_elsewhere(tools):
     tools.layer.mode = "direct"
 
     assert tools.toolbar.checked == "direct"
-    assert OUTLINE_LAYER_NAME not in tools.viewer.layers
     assert tools.layer.cursor != "cross"
 
 
@@ -247,7 +256,6 @@ def test_lasso_turned_off_when_another_layer_gets_active(tools):
     _settle(tools.qtbot)
 
     assert tools.toolbar.checked is None
-    assert OUTLINE_LAYER_NAME not in tools.viewer.layers
 
     # Choosing a tool makes the edit layer active again
     tools.toolbar._buttons["select"].click()
@@ -261,7 +269,7 @@ def test_outline_follows_napari_highlight_preferences(tools):
     highlight = get_settings().appearance.highlight
     previous = (list(highlight.highlight_color), highlight.highlight_thickness)
     tools.toolbar._buttons[LASSO].click()
-    outline = tools.viewer.layers[OUTLINE_LAYER_NAME]
+    outline = tools.outline.layer
     tools.lasso._outline.show(np.array(AROUND_FIRST))
     try:
         highlight.highlight_color = [1.0, 0.0, 0.0, 1.0]
@@ -275,7 +283,7 @@ def test_outline_follows_napari_highlight_preferences(tools):
 
 def test_outline_keeps_its_screen_width(tools):
     tools.toolbar._buttons[LASSO].click()
-    outline = tools.viewer.layers[OUTLINE_LAYER_NAME]
+    outline = tools.outline.layer
     tools.lasso._outline.show(np.array(AROUND_FIRST))
     width = outline.edge_width[0]
 
@@ -292,6 +300,7 @@ def test_line_select_tool_draws_an_open_line(make_napari_viewer):
 
     viewer = make_napari_viewer()
     layer = viewer.add_shapes([SQUARE], shape_type="polygon")
+    outline = SelectionOutline.add(viewer, layer).layer
     line = LineSelectTool(viewer)
     assert isinstance(line, StrokeSelectTool)
     toolbar = ToolBar(viewer, shapes_rows([line]))
@@ -302,7 +311,6 @@ def test_line_select_tool_draws_an_open_line(make_napari_viewer):
     drag, event = _press(layer, (5, -5))
     _move(drag, event, (5, 15))
     # The outline is an open line, not closed back
-    outline = viewer.layers[OUTLINE_LAYER_NAME]
     assert outline.shape_type == ["path"]
     _release(drag, event)
     # 2 points are a line: it crosses the square, which gets selected

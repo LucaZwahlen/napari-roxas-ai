@@ -10,6 +10,7 @@ from pathlib import Path
 
 from qtpy.QtCore import QTimer
 
+from ._companion import owner_of
 from ._toolbar import ToolBar, ToolSpec
 
 UNDO = "undo"
@@ -182,7 +183,9 @@ class LayerTools:
         layer = self._layer
         if layer is None:
             return
-        if self._viewer.layers.selection.active is not layer:
+        active = self._viewer.layers.selection.active
+        # A layer of the edited layer (selecting it selects the edited layer)
+        if active is not layer and owner_of(active) is not layer:
             self._deactivate_custom(layer)
         self._sync_checked()
 

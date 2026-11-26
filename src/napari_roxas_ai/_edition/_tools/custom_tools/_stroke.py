@@ -37,7 +37,9 @@ class StrokeSelectTool(CustomTool):
     def activate(self, tools, layer) -> None:
         self._tools = tools
         tools.set_mode(layer, "select")
-        self._outline = SelectionOutline(self._viewer, layer)
+        # Added by the editor for the edit session; without one, the stroke
+        # is not drawn
+        self._outline = SelectionOutline.of(layer)
         # First, to run before (and instead of) napari's select drag
         layer.mouse_drag_callbacks.insert(0, self._on_drag)
         layer.bind_key("Escape", self._cancel_stroke, overwrite=True)
@@ -53,7 +55,7 @@ class StrokeSelectTool(CustomTool):
         if layer.mode == "select":
             layer.cursor = self._select_cursor
         if self._outline is not None:
-            self._outline.remove()
+            self._outline.clear()
             self._outline = None
 
     def _cancel_stroke(self, _layer=None) -> None:

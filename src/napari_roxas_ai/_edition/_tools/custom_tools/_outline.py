@@ -2,21 +2,39 @@ import numpy as np
 from napari.layers import Shapes
 from napari.settings import get_settings
 
-OUTLINE_LAYER_NAME = "Selection outline"
+from .._companion import CompanionLayer
+
+# Edited layer -> its outline (until removed)
+_OUTLINES: dict = {}
 
 
 class SelectionOutline:
     """
     The outline of a selection being drawn as a solid line in naparis
-    preferenced highlight color. Drawn as a non-filled polygon in a ``shapes`` layer.
-    The outline layer, on top of ``reference_layer``.
+    preferenced highlight color. Drawn as a non-filled polygon in a ``shapes``
+    layer right above the edited layer, belonging to it (``CompanionLayer``:
+    the user can't hide, delete or select it).
 
-    The layer is added on creation and removed by ``remove``. Adding it does
-    not change the active layer.
+    Added by the editor for an edit session (``add``; adding a layer is slow,
+    switching tools must not be) and removed when it ends (``remove``). The
+    tools get it with ``of(layer)``: without one, nothing is drawn.
     """
+
+    @classmethod
+    def add(cls, viewer, reference_layer) -> "SelectionOutline":
+        """Add the outline of ``reference_layer`` to the viewer."""
+        outline = cls(viewer, reference_layer)
+        _OUTLINES[reference_layer] = outline
+        return outline
+
+    @staticmethod
+    def of(reference_layer) -> "SelectionOutline | None":
+        """The outline of ``reference_layer`` (None: it has none)."""
+        return _OUTLINES.get(reference_layer)
 
     def __init__(self, viewer, reference_layer):
         self._viewer = viewer
+        self._reference = reference_layer
         self._scale = np.asarray(reference_layer.scale[-2:], dtype=float)
         self._highlight = get_settings().appearance.highlight
         # The outline shown (redrawn when its style changes)
@@ -24,17 +42,13 @@ class SelectionOutline:
         self._closed = False
 
         self._layer = Shapes(
-            name=OUTLINE_LAYER_NAME,
             ndim=2,
             scale=self._scale,
             translate=reference_layer.translate[-2:],
             opacity=1,
             blending="translucent_no_depth",
         )
-        active = viewer.layers.selection.active
-        viewer.add_layer(self._layer)
-        if active is not None and active in viewer.layers:
-            viewer.layers.selection.active = active
+        self._companion = CompanionLayer(viewer, self._layer, reference_layer)
         viewer.camera.events.zoom.connect(self._update_style)
         self._highlight.events.highlight_color.connect(self._update_style)
         self._highlight.events.highlight_thickness.connect(self._update_style)
@@ -60,6 +74,8 @@ class SelectionOutline:
         self._draw()
 
     def clear(self) -> None:
+        if self._points is None:
+            return
         self._points = None
         self._draw()
 
@@ -79,13 +95,15 @@ class SelectionOutline:
             self._layer.add_paths([points], **style)
 
     def _update_style(self, _event=None) -> None:
-        self._draw()
+        if self._points is not None:
+            self._draw()
 
     def remove(self) -> None:
+        if _OUTLINES.get(self._reference) is self:
+            del _OUTLINES[self._reference]
         self._viewer.camera.events.zoom.disconnect(self._update_style)
         self._highlight.events.highlight_color.disconnect(self._update_style)
         self._highlight.events.highlight_thickness.disconnect(
             self._update_style
         )
-        if self._layer in self._viewer.layers:
-            self._viewer.layers.remove(self._layer)
+        self._companion.release()

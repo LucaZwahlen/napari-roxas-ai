@@ -25,7 +25,13 @@ from napari_roxas_ai._settings import SettingsManager
 from napari_roxas_ai.shortcuts import prevent_duplicate_dock_if_already_present
 
 from ._operations import vectorize_cells
-from ._tools import VECTOR, EditToolsPanel, LassoSelectTool, LineSelectTool
+from ._tools import (
+    VECTOR,
+    EditToolsPanel,
+    LassoSelectTool,
+    LineSelectTool,
+    SelectionOutline,
+)
 
 if TYPE_CHECKING:
     import napari
@@ -86,6 +92,8 @@ class CellsLayerEditorWidget(Container):
 
         # True while an edit session ("Cells Modification" layer) is open
         self._is_editing = False
+        # The outline of the lasso/line select tools (vector edit session)
+        self._selection_outline = None
 
         # --- UNDO STATE ---
         # Snapshots of the vector "Cells Modification" layer taken before each completed edit
@@ -580,6 +588,9 @@ class CellsLayerEditorWidget(Container):
                 )
                 self._viewer.add_layer(work_layer)
                 self._is_editing = True
+                self._selection_outline = SelectionOutline.add(
+                    self._viewer, work_layer
+                )
                 self._edit_tools.edit_vectors(work_layer)
                 self._edit_tools.visible = True
                 if sample_name is not None:
@@ -630,12 +641,18 @@ class CellsLayerEditorWidget(Container):
             QMessageBox.warning(None, "Error", "Unknown edition mode selected")
             return
 
+    def _remove_selection_outline(self) -> None:
+        if self._selection_outline is not None:
+            self._selection_outline.remove()
+            self._selection_outline = None
+
     def _cancel_cells_geometries(self) -> None:
         """Cancel the changes made to the input layer."""
         # Ended first, so removing the working layer below does not re-trigger
         self._is_editing = False
         self._edit_tools.end_editing()
         self._edit_tools.visible = False
+        self._remove_selection_outline()
 
 
         # Remove the working layer - original layer was never modified
@@ -663,6 +680,7 @@ class CellsLayerEditorWidget(Container):
         self._is_editing = False
         self._edit_tools.end_editing()
         self._edit_tools.visible = False
+        self._remove_selection_outline()
 
 
         if getattr(self, "_edition_mode", None) == "Raster":
