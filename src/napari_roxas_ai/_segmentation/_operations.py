@@ -1,5 +1,5 @@
 """
-torch, torch.package.PackageImporter and ._cells_model are imported lazily
+torch and torch.package.PackageImporter are imported lazily
 """
 
 from datetime import datetime
@@ -272,34 +272,21 @@ def _import_torch() -> None:
     torch.set_num_threads(1)
 
 
-def load_cells_model(weights_path: Path, try_gpu: bool):
-    import torch
+def load_cells_model(package_path: Path, try_gpu: bool):
+    """
+    The cells model of a torch.package bundle: its code (infer, infer_steps)
+    is part of the bundle, pickled as <model package>/model.pkl.
+    """
+    from torch.package import PackageImporter
 
-    from ._cells_model import CellsSegmentationModel
-
-    cells_model = CellsSegmentationModel()
-    cells_model.load_weights(weights_path)
+    importer = PackageImporter(package_path)
+    packages = importer.file_structure(include="*/model.pkl").children
+    if not packages:
+        raise ValueError(f"No model.pkl in the model bundle {package_path}")
+    cells_model = importer.load_pickle(next(iter(packages)), "model.pkl")
+    # Moves the model and chooses autocast (the bundle's setter)
     cells_model.available_device = select_torch_device(try_gpu)
-    cells_model.to(device=cells_model.available_device)
     print(f"Cells model running on: {cells_model.available_device}")
-    # Synchronize internal device attribute for models that use it in infer()
-    device = cells_model.available_device
-    try:
-        cells_model.device = device
-    except Exception:  # noqa: BLE001
-        try:
-            setattr(cells_model, "device", device)  # noqa: B010
-        except Exception:  # noqa: BLE001
-            if hasattr(cells_model, "__dict__"):
-                cells_model.__dict__["device"] = device
-    # Use local device variable for autocast checks to avoid restricted
-    # attribute assignment
-    device_obj = torch.device(cells_model.available_device)
-    cells_model.use_autocast = bool(
-        torch.amp.autocast_mode.is_autocast_available(device_obj.type)
-        and try_gpu
-        and cells_model.available_device != "cpu"
-    )
     return cells_model
 
 
