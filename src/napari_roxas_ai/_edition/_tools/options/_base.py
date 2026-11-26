@@ -1,8 +1,6 @@
 from collections.abc import Sequence
 
-from magicgui.widgets import CheckBox, Container, Label, Widget
-
-GROUPS = {"tool": "Tool options", "layer": "Layer options"}
+from magicgui.widgets import CheckBox, Container, Widget
 
 
 class ToolOption:
@@ -13,7 +11,6 @@ class ToolOption:
     Subclass and define:
 
     - ``name``, ``label``, ``tools`` (tool names it applies to, None: always);
-    - ``group``: ``"tool"`` (a setting of the tools) or ``"layer"``;
     - ``make_widget()``: the magicgui value widget;
     - ``read(layer)`` / ``write(layer, value)``: the layer property;
     - ``layer_event(layer)``: the event emitted when the property changes.
@@ -22,7 +19,6 @@ class ToolOption:
     name: str = ""
     label: str = ""
     tools: frozenset[str] | None = None
-    group: str = "tool"
 
     def make_widget(self) -> Widget:
         raise NotImplementedError
@@ -44,18 +40,8 @@ class OptionsBox(Container):
     """The ``options`` of one page, bound to the attached layer."""
 
     def __init__(self, options: Sequence[ToolOption] = ()):
-        super().__init__(labels=False)
+        super().__init__(labels=True)
         self.margins = (0, 0, 0, 0)
-        # Per group: a title and the options under it
-        self._titles: dict[str, Label] = {}
-        self._groups: dict[str, Container] = {}
-        for group, title in GROUPS.items():
-            label = Label(value=title)
-            label.native.setStyleSheet("font-weight: bold;")
-            box = Container(labels=True)
-            box.margins = (0, 0, 0, 0)
-            self._titles[group], self._groups[group] = label, box
-            self.extend([label, box])
         self._layer = None
         self._tool: str | None = None
         self._options: list[ToolOption] = []
@@ -65,8 +51,7 @@ class OptionsBox(Container):
     def set_options(self, options: Sequence[ToolOption]) -> None:
         layer = self._layer
         self.detach()
-        for box in self._groups.values():
-            box.clear()
+        self.clear()
         self._options = list(options)
         self._widgets = {}
         for option in self._options:
@@ -83,7 +68,7 @@ class OptionsBox(Container):
                 )  # button -> napari sync
             )
             self._widgets[option.name] = widget
-            self._groups[option.group].append(widget)
+            self.append(widget)
         if layer is not None:
             self.attach(layer)
         self._update_visibility()
@@ -109,14 +94,8 @@ class OptionsBox(Container):
         self._update_visibility()
 
     def _update_visibility(self) -> None:
-        shown = {group: False for group in GROUPS}
         for option in self._options:
-            visible = option.applies_to(self._tool)
-            self._widgets[option.name].visible = visible
-            shown[option.group] |= visible
-        for group, any_shown in shown.items():
-            self._titles[group].visible = any_shown
-            self._groups[group].visible = any_shown
+            self._widgets[option.name].visible = option.applies_to(self._tool)
 
     def _on_widget(self, option: ToolOption, value) -> None:
         if self._layer is not None:

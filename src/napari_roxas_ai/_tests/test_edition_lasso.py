@@ -225,7 +225,7 @@ def test_escape_cancels_the_lasso_being_drawn(tools):
     assert tools.layer.mode == "select"
 
     # Escape is only bound while the lasso is active
-    tools.toolbar._buttons["select"].click()
+    tools.toolbar._buttons["direct"].click()
     assert "Escape" not in {str(key) for key in tools.layer.keymap}
 
 
@@ -258,9 +258,9 @@ def test_lasso_turned_off_when_another_layer_gets_active(tools):
     assert tools.toolbar.checked is None
 
     # Choosing a tool makes the edit layer active again
-    tools.toolbar._buttons["select"].click()
+    tools.toolbar._buttons["direct"].click()
     assert tools.viewer.layers.selection.active is tools.layer
-    assert tools.layer.mode == "select"
+    assert tools.layer.mode == "direct"
 
 
 def test_outline_follows_napari_highlight_preferences(tools):

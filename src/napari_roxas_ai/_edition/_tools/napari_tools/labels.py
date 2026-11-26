@@ -6,10 +6,8 @@ from .._toolbar import ToolRows, ToolSpec
 # napari's Labels modes, ToolSpec name MUST match the napari operation name
 LABELS_TOOLS = {
     "pan_zoom": ToolSpec("pan_zoom", "pan_arrows", "Pan/zoom"),
-    "pick": ToolSpec("pick", "picker", "Pick a label"),
     "paint": ToolSpec("paint", "paint", "Paint"),
     "polygon": ToolSpec("polygon", "polygon", "Draw a polygon label"),
-    "fill": ToolSpec("fill", "fill", "Fill"),
     "erase": ToolSpec("erase", "erase", "Erase"),
 }
 
@@ -19,11 +17,10 @@ def labels_rows(custom: Sequence[CustomTool] = ()) -> ToolRows:
     t = LABELS_TOOLS
     row = [
         t["pan_zoom"],
-        t["pick"],
+        None,
+        t["erase"],
         t["paint"],
         t["polygon"],
-        t["fill"],
-        t["erase"],
         None,
         UNDO_ACTION,
     ]

@@ -38,8 +38,8 @@ def test_tool_buttons_set_the_napari_mode(session):
 
 def test_mode_chosen_elsewhere_checks_its_button(session):
     panel, labels = session
-    labels.mode = "fill"  # e.g. napari's layer controls or a shortcut
-    assert _button(panel, PIXEL, "fill").isChecked()
+    labels.mode = "erase"  # e.g. napari's layer controls or a shortcut
+    assert _button(panel, PIXEL, "erase").isChecked()
     assert not _button(panel, PIXEL, "paint").isChecked()
 
 
@@ -60,17 +60,11 @@ def test_options_sync_both_ways(session):
 
 def test_options_follow_the_checked_tool(session):
     panel, labels = session
-    titles = panel._options[PIXEL]._titles
 
     _button(panel, PIXEL, "paint").click()
     assert _shown_options(panel, PIXEL) == ["brush_size", "opacity"]
-    labels.mode = "fill"
-    assert _shown_options(panel, PIXEL) == ["contiguous", "opacity"]
     _button(panel, PIXEL, "pan_zoom").click()
     assert _shown_options(panel, PIXEL) == ["opacity"]
-    # No tool option: only the "Layer options" title
-    assert titles["tool"].native.isHidden()
-    assert not titles["layer"].native.isHidden()
 
 
 def test_undo_button_runs_the_editor_undo(session):

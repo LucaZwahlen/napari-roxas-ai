@@ -7,9 +7,8 @@ class Opacity(ToolOption):
     """Opacity of the layer, whatever the tool."""
 
     name = "opacity"
-    label = "Opacity"
+    label = "Layer opacity"
     tools = None
-    group = "layer"
 
     def make_widget(self):
         return FloatSlider(min=0, max=1, step=0.01)

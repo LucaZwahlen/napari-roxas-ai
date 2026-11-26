@@ -390,11 +390,11 @@ def test_ctrl_double_click_toggles_eraser_and_brush(make_napari_viewer):
     assert edit_layer.mode == "erase"
 
     # Other tools are not affected
-    edit_layer.mode = "fill"
+    edit_layer.mode = "polygon"
     widget._on_raster_double_click(
         edit_layer, SimpleNamespace(modifiers=(BRUSH_SHORTCUT_MODIFIER,), handled=False)
     )
-    assert edit_layer.mode == "fill"
+    assert edit_layer.mode == "polygon"
     edit_layer.mode = "paint"
 
     # CTRL+clicks do not paint/erase, plain clicks still do
