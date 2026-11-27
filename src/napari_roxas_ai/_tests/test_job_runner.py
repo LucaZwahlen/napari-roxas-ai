@@ -318,62 +318,62 @@ def test_exclusive_jobs_share_the_running_handle(qtbot):
     first_finished, second_finished = [], []
     first = runner.submit(
         Job(
-            "dl",
+            "saving",
             endless,
             args=(started, closed),
-            tags={JobTag.RINGS_MODELS_DOWNLOAD},
+            tags={JobTag.SAVING},
             exclusive=True,
         ),
         on_finished=first_finished.append,
     )
     second = runner.submit(
         Job(
-            "dl",
+            "saving",
             plain,
             args=(1,),
-            tags={JobTag.RINGS_MODELS_DOWNLOAD},
+            tags={JobTag.SAVING},
             exclusive=True,
         ),
         on_finished=second_finished.append,
     )
     assert second is first
-    assert runner.running(JobTag.RINGS_MODELS_DOWNLOAD) == [first]
+    assert runner.running(JobTag.SAVING) == [first]
     qtbot.waitUntil(started.is_set, timeout=5000)
     first.cancel()
     qtbot.waitUntil(lambda: bool(second_finished), timeout=5000)
     assert first_finished == second_finished == [first]
-    assert not runner.is_running(JobTag.RINGS_MODELS_DOWNLOAD)
+    assert not runner.is_running(JobTag.SAVING)
 
 
 def test_exclusive_jobs_with_different_tags_run_side_by_side(qtbot):
     runner = JobRunner()
     events = [threading.Event() for _ in range(4)]
-    cells = runner.submit(
+    loading = runner.submit(
         Job(
-            "cells models",
+            "loading",
             endless,
             args=(events[0], events[1]),
-            tags={JobTag.CELLS_MODELS_DOWNLOAD},
+            tags={JobTag.LOADING},
             exclusive=True,
         )
     )
-    rings = runner.submit(
+    saving = runner.submit(
         Job(
-            "rings models",
+            "saving",
             endless,
             args=(events[2], events[3]),
-            tags={JobTag.RINGS_MODELS_DOWNLOAD},
+            tags={JobTag.SAVING},
             exclusive=True,
         )
     )
-    assert rings is not cells
-    assert runner.running(JobTag.CELLS_MODELS_DOWNLOAD) == [cells]
-    assert runner.running(JobTag.RINGS_MODELS_DOWNLOAD) == [rings]
+    assert saving is not loading
+    assert runner.running(JobTag.LOADING) == [loading]
+    assert runner.running(JobTag.SAVING) == [saving]
     qtbot.waitUntil(
         lambda: events[0].is_set() and events[2].is_set(), timeout=5000
     )
-    cells.cancel()
-    rings.cancel()
+    loading.cancel()
+    saving.cancel()
     qtbot.waitUntil(lambda: not runner.running(), timeout=5000)
 
 

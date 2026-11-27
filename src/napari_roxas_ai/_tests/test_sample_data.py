@@ -41,3 +41,15 @@ def test_load_sample_data():
     assert sample_data[2][2] == "labels" and "rings" in sample_data[2][1]["name"].lower()
 
     print("All sample data tests passed!")
+
+
+def test_load_sample_data_without_download_loads_nothing(monkeypatch):
+    from napari_roxas_ai._sample_data import _data_loader
+
+    monkeypatch.setattr(
+        _data_loader,
+        "ensure_assets",
+        lambda assets, on_done: on_done(False),  # E.g. cancelled
+    )
+
+    assert load_sample_data() == []

@@ -133,8 +133,8 @@ ROXAS AI automatically handles model checkpoint discovery, remote downloads, int
 
 ### Background Download & Local Checkpoints
 
-- **Automatic Asset Detection**: Upon opening segmentation widgets or running batch inference, ROXAS AI checks local directories (`_models/_cells` and `_models/_rings`).
-- **GitHub Release Storage**: If checkpoints are missing or incomplete, the asset manager (`check_assets_and_download`) fetches `cells_models.zip` and `rings_models.zip` directly from official GitHub releases.
+- **Automatic Asset Detection**: When a model dropdown is first shown (segmentation widgets, rings editor), ROXAS AI checks that the local directories (`_models/_cells` and `_models/_rings`) contain every required model. The list of files per archive is kept in one place, `_assets_files/_registry.py`.
+- **GitHub Release Storage**: If checkpoints are missing or incomplete, the asset manager (`ensure_assets`) downloads `cells_models.zip` and `rings_models.zip` from the GitHub release matching the installed plugin version (falling back to the latest release). A modal "Downloading assets" dialog shows the progress and can cancel the download. If the download fails or is cancelled, the model dropdowns stay empty and point to **File > IO Utilities > Download ROXAS AI Assets**, which downloads every missing asset; open widgets list the models once it is done.
 - **Atomic Extraction & Tracking**: Archives are downloaded into temporary directories and extracted atomically. A `.asset_id` marker tracks the release version to prevent duplicate downloads.
 - **Offline Reliability**: Once downloaded, model checkpoints reside locally and do not require active internet access.
 

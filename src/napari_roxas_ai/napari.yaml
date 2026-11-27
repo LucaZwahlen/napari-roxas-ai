@@ -11,6 +11,11 @@ contributions:
       python_name: napari_roxas_ai:load_sample_data
       title: Load Sample Data (Conifer)
 
+    # Menu contributions
+    - id: napari-roxas-ai.download_missing_assets
+      python_name: napari_roxas_ai:download_missing_assets
+      title: Download ROXAS AI Assets
+
     # Widgets contributions
     - id: napari-roxas-ai.open_project_directory_dialog
       python_name: napari_roxas_ai:open_project_directory_dialog
@@ -89,6 +94,10 @@ contributions:
     - id: napari-roxas-ai.write_single_layer
       python_name: napari_roxas_ai._writer:write_single_layer
       title: Save layer data with ROXAS AI
+
+  menus:
+    napari/file/io_utilities:
+      - command: napari-roxas-ai.download_missing_assets
 
   readers:
     - command: napari-roxas-ai.napari_get_reader

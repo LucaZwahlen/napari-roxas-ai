@@ -5,7 +5,3 @@ __all__ = [
     "SingleSampleSegmentationWidget",
     "BatchSampleSegmentationWidget",
 ]
-
-# NOTE: model weights are downloaded lazily by each segmentation widget's
-# __init__ (see check_assets_and_download calls there) instead of at import
-# time, so importing this package never triggers network/filesystem I/O.

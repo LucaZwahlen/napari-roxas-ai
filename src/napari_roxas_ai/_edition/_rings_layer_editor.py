@@ -1,6 +1,5 @@
 import warnings
 from collections import deque
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional, ContextManager
 from contextlib import contextmanager
 
@@ -10,7 +9,6 @@ import numpy as np
 import pandas as pd
 from magicgui.widgets import (
     CheckBox,
-    ComboBox,
     Container,
     Label,
     PushButton,
@@ -21,7 +19,11 @@ from napari.utils.notifications import show_info, show_warning
 from qtpy.QtCore import QObject, QThread, QTimer, Signal
 from qtpy.QtWidgets import QMessageBox, QSizePolicy
 
-from napari_roxas_ai._assets_files import check_assets_and_download
+from napari_roxas_ai._assets_files import (
+    DOWNLOAD_MENU_HINT,
+    RINGS_MODELS,
+    AssetComboBox,
+)
 from napari_roxas_ai._job_runner import JobButton, JobHandle
 from napari_roxas_ai._saving import start_saving
 from napari_roxas_ai._settings import SettingsManager
@@ -42,10 +44,6 @@ settings = SettingsManager()
 # Maximum number of edits kept in the undo history (older edits are dropped)
 UNDO_HISTORY_LIMIT = 50
 
-SEGMENTATION_MODULE_PATH = (
-    Path(__file__).parent.parent.absolute() / "_segmentation"
-)
-RINGS_MODELS_PATH = SEGMENTATION_MODULE_PATH / "_models" / "_rings"
 RERUN_BUTTON_TEXT = "Rerun Ring Segmentation"
 DEFAULT_RINGS_MODEL = "LinearRingModel_v3_iterative.pt"
 MODEL_FILE_SUFFIXES = (".pt", ".pth")
@@ -398,112 +396,6 @@ def interpolate_row_at_col(coords_rc: list, col_query: float) -> float:
     return float(r0 + t * (r1 - r0))
 
 
-class RingsModelsDownloadWorker(QObject):
-    """Downloads the rings models in a separate thread."""
-
-    finished = Signal()
-    result_ready = Signal(str)  # Error message, empty on success
-
-    def run(self):
-        try:
-            check_assets_and_download(
-                str(RINGS_MODELS_PATH),
-                "rings_models.zip",
-                required_files=(DEFAULT_RINGS_MODEL,),
-            )
-            self.result_ready.emit("")
-        except Exception as e:  # noqa: BLE001
-            self.result_ready.emit(str(e) or type(e).__name__)
-        finally:
-            self.finished.emit()
-
-
-# State of the rings models download shared by all editor instances (e.g. the
-# hidden one created by the loading widget and the one opened by the user), so
-# that the models are downloaded only once at a time.
-_models_download = {
-    "running": False,
-    "thread": None,
-    "worker": None,
-    "callbacks": [],
-}
-
-
-def is_rings_models_download_running() -> bool:
-    """Whether the rings models are currently being downloaded."""
-    return _models_download["running"]
-
-
-def ensure_rings_models_downloaded(on_done=None) -> None:
-    """
-    Download the rings models in the background if the default model is missing.
-
-    Shows a hint when the download starts and when it is finished. ``on_done``
-    is called (in the main thread) once the download is finished; if a download
-    is already running, it is called when that download is finished.
-    """
-    if (RINGS_MODELS_PATH / DEFAULT_RINGS_MODEL).exists():
-        return
-
-    if on_done is not None:
-        _models_download["callbacks"].append(on_done)
-    if is_rings_models_download_running():
-        return
-
-    show_info(
-        f"The rings model '{DEFAULT_RINGS_MODEL}' is not available yet and is "
-        "being downloaded in the background..."
-    )
-
-    thread = QThread()
-    worker = RingsModelsDownloadWorker()
-    worker.moveToThread(thread)
-
-    thread.started.connect(worker.run)
-    worker.result_ready.connect(_on_rings_models_downloaded)
-    worker.finished.connect(thread.quit)
-    worker.finished.connect(worker.deleteLater)
-    thread.finished.connect(thread.deleteLater)
-    # Keep the references until the thread has really stopped, otherwise
-    # Python may destroy the QThread while it is still running
-    thread.finished.connect(_release_rings_models_download_thread)
-
-    _models_download["running"] = True
-    _models_download["thread"] = thread
-    _models_download["worker"] = worker
-    thread.start()
-
-
-def _release_rings_models_download_thread() -> None:
-    _models_download["thread"] = None
-    _models_download["worker"] = None
-
-
-def _on_rings_models_downloaded(error: str) -> None:
-    """Report the download result and notify the waiting editors."""
-    _models_download["running"] = False
-
-    if error:
-        show_warning(
-            f"Could not download the rings models ({error}). 'Rerun Ring "
-            "Segmentation' is unavailable until the models are downloaded."
-        )
-    elif (RINGS_MODELS_PATH / DEFAULT_RINGS_MODEL).exists():
-        show_info(
-            f"The rings model '{DEFAULT_RINGS_MODEL}' has been downloaded "
-            "and is now available"
-        )
-    else:
-        show_warning(
-            f"The rings model '{DEFAULT_RINGS_MODEL}' is not available in the "
-            "latest release."
-        )
-
-    callbacks, _models_download["callbacks"] = _models_download["callbacks"], []
-    for callback in callbacks:
-        callback()
-
-
 class RerunWorker(QObject):
     """Runs the rings model from a given start boundary in a separate thread."""
 
@@ -521,7 +413,7 @@ class RerunWorker(QObject):
         self.input_array = input_array
         self.start_boundary = start_boundary
         self.rings_model_weights_file = (
-            RINGS_MODELS_PATH / rings_model_weights_file
+            RINGS_MODELS.directory / rings_model_weights_file
         )
         self.settings = settings
 
@@ -883,16 +775,13 @@ class RingsLayerEditorWidget(Container):
         )
 
         # Line 2: Model: --- combo
-        # The choices are read from the models folder whenever they are reset,
-        # so that models downloaded later show up as well
-        self._rings_model_weights_file = ComboBox(
-            choices=lambda _widget: self._get_rings_model_files(),
+        # Only lists model files (the folder may also contain e.g. a manifest)
+        self._rings_model_weights_file = AssetComboBox(
+            RINGS_MODELS,
+            default=DEFAULT_RINGS_MODEL,
+            suffixes=MODEL_FILE_SUFFIXES,
             label="Model:",
         )
-        self._refresh_rings_model_choices()
-        # The model is only needed for rerunning the segmentation, so a missing
-        # model is downloaded in the background without blocking the UI
-        ensure_rings_models_downloaded(self._refresh_rings_model_choices)
 
         # Horizontal rows for the rerun model parameters
         self._rerun_year_row = Container(
@@ -1292,29 +1181,6 @@ class RingsLayerEditorWidget(Container):
             layer.refresh()
 
         self._years_update_timer.start(100)
-
-    def _refresh_rings_model_choices(self) -> None:
-        """List the local rings models and preselect the default one."""
-        try:
-            self._rings_model_weights_file.reset_choices()
-            if DEFAULT_RINGS_MODEL in self._rings_model_weights_file.choices:
-                self._rings_model_weights_file.value = DEFAULT_RINGS_MODEL
-        except RuntimeError:
-            # The widget was closed before the download finished
-            pass
-
-    def _get_rings_model_files(self) -> tuple:
-        """Get the rings model weight files available locally."""
-        if not RINGS_MODELS_PATH.is_dir():
-            return ()
-        # Only list model files (the folder may also contain e.g. a manifest)
-        return tuple(
-            sorted(
-                path.name
-                for path in RINGS_MODELS_PATH.iterdir()
-                if path.suffix in MODEL_FILE_SUFFIXES
-            )
-        )
 
     @contextmanager
     def _pause_rendering(self) -> ContextManager[None]:
@@ -2413,18 +2279,8 @@ class RingsLayerEditorWidget(Container):
         """
         selected_year = self._rerun_model_year_spinbox.value
 
-        if is_rings_models_download_running():
-            show_info(
-                f"The rings model '{DEFAULT_RINGS_MODEL}' is still being "
-                "downloaded, please try again in a moment"
-            )
-            return
-
         if not self._rings_model_weights_file.value:
-            show_info(
-                "No rings model available — the models could not be downloaded. "
-                "Check your internet connection and reopen the widget."
-            )
+            show_info(f"No rings model available. {DOWNLOAD_MENU_HINT}.")
             return
 
         if not self._input_layer:

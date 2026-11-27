@@ -2,6 +2,7 @@
 Tests for the segmentation module functionality.
 """
 
+import importlib
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -113,26 +114,6 @@ def sample_image_dir(temp_dir):
 class TestSingleSampleSegmentation:
     """Tests for single sample segmentation functionality."""
 
-    def test_get_model_files(self):
-        """Test getting model files from directory."""
-        with patch(
-            "pathlib.Path.iterdir",
-            return_value=[
-                Path("dummy/path/model1.pth"),
-                Path("dummy/path/model2.pth"),
-            ],
-        ):
-            from napari_roxas_ai._segmentation._single_sample_segmentation import (
-                SingleSampleSegmentationWidget,
-            )
-
-            # Call the method directly as a normal function, passing a dummy self
-            dummy_self = MagicMock()
-            result = SingleSampleSegmentationWidget._get_model_files(
-                dummy_self, "dummy/path"
-            )
-            assert result == ("model1.pth", "model2.pth")
-
     def test_add_result_layers_marks_dirty_and_writes_annotated_image(
         self, make_napari_viewer
     ):
@@ -169,24 +150,6 @@ class TestSingleSampleSegmentation:
         assert viewer.layers["sample_01.cells"].metadata["_is_dirty"] is True
         mock_annotate.assert_called_once_with(viewer.layers, "sample_01")
 
-    def test_get_model_files_skips_hidden_files(self):
-        """The download bookkeeping file (.asset_id) is not a model."""
-        with patch(
-            "pathlib.Path.iterdir",
-            return_value=[
-                Path("dummy/path/.asset_id"),
-                Path("dummy/path/model1.pth"),
-            ],
-        ):
-            from napari_roxas_ai._segmentation._single_sample_segmentation import (
-                SingleSampleSegmentationWidget,
-            )
-
-            result = SingleSampleSegmentationWidget._get_model_files(
-                MagicMock(), "dummy/path"
-            )
-            assert result == ("model1.pth",)
-
     def test_standard_rings_model_preselected(self, mock_settings):
         """The rerun model of the rings editor must not become the default."""
         from napari_roxas_ai._segmentation._single_sample_segmentation import (
@@ -194,9 +157,7 @@ class TestSingleSampleSegmentation:
         )
 
         with patch(
-            "napari_roxas_ai._segmentation._single_sample_segmentation.check_assets_and_download"
-        ), patch(
-            "napari_roxas_ai._segmentation._single_sample_segmentation.SingleSampleSegmentationWidget._get_model_files",
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=(
                 "LinearRingModel_v3_iterative.pt",
                 "linear_rings_model.pth",
@@ -250,9 +211,7 @@ class TestSingleSampleSegmentation:
         type(image_layer).__name__ = "Image"
         # Mock isinstance check
         with patch(
-            "napari_roxas_ai._segmentation._single_sample_segmentation.check_assets_and_download"
-        ), patch(
-            "napari_roxas_ai._segmentation._single_sample_segmentation.SingleSampleSegmentationWidget._get_model_files",
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("dummy_model.pth",),
         ), patch(
             "napari_roxas_ai._segmentation._single_sample_segmentation.SettingsManager",
@@ -421,10 +380,8 @@ def single_widget(make_napari_viewer, sync_runner):
         metadata={"sample_name": "sample_01"},
     )
     with (
-        patch(f"{SINGLE}.check_assets_and_download"),
-        patch.object(
-            SingleSampleSegmentationWidget,
-            "_get_model_files",
+        patch(
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("linear_rings_model.pth",),
         ),
     ):
@@ -473,37 +430,14 @@ class TestSingleSegmentationWidget:
 class TestBatchSampleSegmentation:
     """Tests for batch sample segmentation functionality."""
 
-    def test_get_model_files(self):
-        """Test getting model files from directory."""
-        with patch(
-            "pathlib.Path.iterdir",
-            return_value=[
-                Path("dummy/path/model1.pth"),
-                Path("dummy/path/model2.pth"),
-            ],
-        ):
-            from napari_roxas_ai._segmentation._batch_sample_segmentation import (
-                BatchSampleSegmentationWidget,
-            )
-
-            # Call the method directly as a normal function, passing a dummy self
-            dummy_self = MagicMock()
-            result = BatchSampleSegmentationWidget._get_model_files(
-                dummy_self, "dummy/path"
-            )
-            assert result == ("model1.pth", "model2.pth")
-
     def test_batch_segmentation_widget_layout_and_visibility(self):
-        """Test BatchSampleSegmentationWidget row layout and visibility toggles."""
+        """Test BatchSampleSegmentationWidget row layout and model toggles."""
         from napari_roxas_ai._segmentation._batch_sample_segmentation import (
             BatchSampleSegmentationWidget,
         )
 
         with patch(
-            "napari_roxas_ai._segmentation._batch_sample_segmentation.check_assets_and_download"
-        ), patch.object(
-            BatchSampleSegmentationWidget,
-            "_get_model_files",
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("model1.pth", "model2.pth"),
         ):
             widget = BatchSampleSegmentationWidget(MagicMock())
@@ -550,24 +484,24 @@ class TestBatchSampleSegmentation:
 
             # Initial state
             assert widget._segment_cells_checkbox.value is True
-            assert not widget._cells_model_weights_file.native.isHidden()
+            assert widget._cells_model_weights_file.enabled
             assert widget._segment_rings_checkbox.value is True
-            assert not widget._rings_model_weights_file.native.isHidden()
+            assert widget._rings_model_weights_file.enabled
             assert widget._run_segmentation_button.enabled is True
 
-            # Toggle cells checkbox -> hide combo
+            # Untick cells -> its model is greyed out
             widget._segment_cells_checkbox.value = False
-            assert widget._cells_model_weights_file.native.isHidden()
+            assert not widget._cells_model_weights_file.enabled
             assert widget._run_segmentation_button.enabled is True
 
-            # Toggle rings checkbox -> hide combo & disable run button
+            # Untick rings too -> nothing to run
             widget._segment_rings_checkbox.value = False
-            assert widget._rings_model_weights_file.native.isHidden()
+            assert not widget._rings_model_weights_file.enabled
             assert widget._run_segmentation_button.enabled is False
 
-            # Toggle cells checkbox back -> show combo & enable run button
+            # Tick cells again -> its model can be chosen and run is enabled
             widget._segment_cells_checkbox.value = True
-            assert not widget._cells_model_weights_file.native.isHidden()
+            assert widget._cells_model_weights_file.enabled
             assert widget._run_segmentation_button.enabled is True
 
     def test_run_segmentation_picks_up_files_added_after_opening(
@@ -579,11 +513,8 @@ class TestBatchSampleSegmentation:
             BatchSampleSegmentationWidget,
         )
 
-        with patch.object(
-            _batch_sample_segmentation, "check_assets_and_download"
-        ), patch.object(
-            BatchSampleSegmentationWidget,
-            "_get_model_files",
+        with patch(
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("model1.pth", "model2.pth"),
         ):
             widget = BatchSampleSegmentationWidget(MagicMock())
@@ -628,7 +559,6 @@ class TestBatchSampleSegmentation:
 
     def test_files_prepared_by_other_widgets_are_listed(self, tmp_path):
         """Images prepared while the widget is open appear in the manual selection."""
-        from napari_roxas_ai._segmentation import _batch_sample_segmentation
         from napari_roxas_ai._segmentation._batch_sample_segmentation import (
             BatchSampleSegmentationWidget,
         )
@@ -637,11 +567,8 @@ class TestBatchSampleSegmentation:
         )
 
         (tmp_path / "sample1.scan.jpg").touch()
-        with patch.object(
-            _batch_sample_segmentation, "check_assets_and_download"
-        ), patch.object(
-            BatchSampleSegmentationWidget,
-            "_get_model_files",
+        with patch(
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("model1.pth", "model2.pth"),
         ):
             widget = BatchSampleSegmentationWidget(MagicMock())
@@ -674,11 +601,8 @@ class TestBatchSampleSegmentation:
         )
 
         (tmp_path / "sample1.scan.jpg").touch()
-        with patch.object(
-            _batch_sample_segmentation, "check_assets_and_download"
-        ), patch.object(
-            BatchSampleSegmentationWidget,
-            "_get_model_files",
+        with patch(
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("model1.pth", "model2.pth"),
         ):
             widget = BatchSampleSegmentationWidget(MagicMock())
@@ -727,10 +651,7 @@ class TestBatchSampleSegmentation:
         rings2.touch()
 
         with patch(
-            "napari_roxas_ai._segmentation._batch_sample_segmentation.check_assets_and_download"
-        ), patch.object(
-            BatchSampleSegmentationWidget,
-            "_get_model_files",
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
             return_value=("model1.pth", "model2.pth"),
         ):
             widget = BatchSampleSegmentationWidget(MagicMock())
@@ -902,6 +823,46 @@ class TestBatchSegmentationOperation:
         assert outcome.status is JobStatus.CANCELLED
         # The first sample is complete, the next ones are not started
         assert written == ["sample_01.cells", "sample_01.rings"]
+
+
+@pytest.mark.parametrize(
+    "module, widget_class",
+    [
+        ("_single_sample_segmentation", "SingleSampleSegmentationWidget"),
+        ("_batch_sample_segmentation", "BatchSampleSegmentationWidget"),
+    ],
+)
+def test_run_is_enabled_once_the_models_are_listed(
+    module, widget_class, make_napari_viewer, tmp_path, monkeypatch
+):
+    import dataclasses
+
+    from napari_roxas_ai._assets_files import (
+        CELLS_MODELS,
+        RINGS_MODELS,
+        assets_updated,
+    )
+
+    widget_module = importlib.import_module(
+        f"napari_roxas_ai._segmentation.{module}"
+    )
+    cells = dataclasses.replace(CELLS_MODELS, directory=tmp_path / "cells")
+    rings = dataclasses.replace(RINGS_MODELS, directory=tmp_path / "rings")
+    monkeypatch.setattr(widget_module, "CELLS_MODELS", cells)
+    monkeypatch.setattr(widget_module, "RINGS_MODELS", rings)
+    with patch.object(widget_module, "install_unsaved_changes_guard", create=True):
+        widget = getattr(widget_module, widget_class)(make_napari_viewer())
+    assert not widget._run_segmentation_button.enabled
+
+    # The models are downloaded
+    for asset in (cells, rings):
+        asset.directory.mkdir()
+        for name in asset.required:
+            (asset.directory / name).write_bytes(b"weights")
+    assets_updated.emit()
+
+    assert widget._rings_model_weights_file.value == "linear_rings_model.pth"
+    assert widget._run_segmentation_button.enabled
 
 
 if __name__ == "__main__":

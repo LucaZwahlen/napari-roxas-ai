@@ -2,16 +2,14 @@
 This module provides sample data to experiment with the plugin
 """
 
-from pathlib import Path
-
 from PIL import Image
+from qtpy.QtCore import QEventLoop
 
+from napari_roxas_ai._assets_files import SAMPLE_DATA, ensure_assets
 from napari_roxas_ai._reader import read_directory
 
 # Disable DecompressionBomb warnings for large images
 Image.MAX_IMAGE_PIXELS = None
-
-BASE_DIR = Path(__file__).parent.absolute()
 
 
 def _layer_order_key(layer_tuple):
@@ -33,7 +31,30 @@ def load_sample_data():
     This function reads the sample data files from the specified directory
     and returns a list of layer data tuples ordered from bottom to top:
     input image (scan) -> cells -> rings.
+
+    The sample data is downloaded first if missing; nothing is loaded if
+    the download is cancelled or fails.
     """
-    # Read the sample data files from the sample_data directory
-    layers = read_directory(str(BASE_DIR / "sample_data"))
+    if not _download_sample_data():
+        return []
+    layers = read_directory(str(SAMPLE_DATA.directory))
     return sorted(layers, key=_layer_order_key)
+
+
+def _download_sample_data() -> bool:
+    """
+    Download the sample data if missing and wait for it: napari's sample data
+    hook must return the layers. Returns whether the sample data is available.
+    """
+    waiting = QEventLoop()
+    available = None
+
+    def done(ok: bool) -> None:
+        nonlocal available
+        available = ok
+        waiting.quit()
+
+    ensure_assets([SAMPLE_DATA], done)
+    if available is None:  # Still downloading, napari is drawn meanwhile
+        waiting.exec()
+    return available

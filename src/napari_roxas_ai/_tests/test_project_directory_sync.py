@@ -31,9 +31,8 @@ def _measurements_widget():
 
 def _segmentation_widget():
     module = _batch_sample_segmentation
-    with patch.object(module, "check_assets_and_download"), patch.object(
-        module.BatchSampleSegmentationWidget,
-        "_get_model_files",
+    with patch(
+            "napari_roxas_ai._assets_files.AssetComboBox._files",
         return_value=("model.pth",),
     ):
         return module.BatchSampleSegmentationWidget(MagicMock())

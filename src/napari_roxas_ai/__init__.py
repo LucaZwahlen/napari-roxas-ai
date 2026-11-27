@@ -71,6 +71,7 @@ _LAZY_IMPORTS = {
     "PreparationWidget": "._preparation",
     "open_project_directory_dialog": "._project_directory",
     "open_user_documentation": "._docs",
+    "download_missing_assets": "._assets_files",
     "napari_get_reader": "._reader",
     "load_sample_data": "._sample_data",
     "SamplesSavingWidget": "._saving",

@@ -7,14 +7,17 @@ from scipy import ndimage as ndi
 import pandas as pd
 from magicgui.widgets import (
     CheckBox,
-    ComboBox,
     Container,
 )
 from napari.utils.notifications import show_info
 from PIL import Image
 from qtpy.QtWidgets import QMessageBox
 
-from napari_roxas_ai._assets_files import check_assets_and_download
+from napari_roxas_ai._assets_files import (
+    CELLS_MODELS,
+    RINGS_MODELS,
+    AssetComboBox,
+)
 from napari_roxas_ai._edition import update_rings_geometries
 from napari_roxas_ai._job_runner import JobButton, JobHandle, get_runner
 from napari_roxas_ai._jobs import Job, JobTag
@@ -35,9 +38,6 @@ if TYPE_CHECKING:
 # Disable DecompressionBomb warnings for large images
 Image.MAX_IMAGE_PIXELS = None
 
-MODULE_PATH = Path(__file__).parent.absolute()
-CELLS_MODELS_PATH = MODULE_PATH / "_models" / "_cells"
-RINGS_MODELS_PATH = MODULE_PATH / "_models" / "_rings"
 DEFAULT_RINGS_MODEL = "linear_rings_model.pth"
 
 # Gap between a row's label/checkbox and its combo box
@@ -201,23 +201,18 @@ class SingleSampleSegmentationWidget(Container):
         install_unsaved_changes_guard(viewer)
         self.settings = SettingsManager()
 
-        # Ensure model weights are present before listing them below.
-        # (Moved out of import time; only downloads if the dirs are missing.)
-        check_assets_and_download(str(CELLS_MODELS_PATH), "cells_models.zip")
-        check_assets_and_download(str(RINGS_MODELS_PATH), "rings_models.zip")
-
         # Cells segmentation checkbox and model selection
         self._segment_cells_checkbox = CheckBox(
             value=True, label="Cell Segmentation:"
         )
         self._segment_cells_checkbox.changed.connect(
-            self._update_cells_model_visibility
+            self._update_cells_model_enabled
         )
 
         # Cells model selection
-        self._cells_model_weights_file = ComboBox(
-            choices=self._get_model_files(where=CELLS_MODELS_PATH),
-            label="",
+        self._cells_model_weights_file = AssetComboBox(CELLS_MODELS, label="")
+        self._cells_model_weights_file.changed.connect(
+            self._update_run_button_state
         )
 
         self._cells_row = Container(
@@ -239,18 +234,18 @@ class SingleSampleSegmentationWidget(Container):
             value=True, label="Ring Segmentation:"
         )
         self._segment_rings_checkbox.changed.connect(
-            self._update_rings_model_visibility
+            self._update_rings_model_enabled
         )
 
         # Rings model selection
-        self._rings_model_weights_file = ComboBox(
-            choices=self._get_model_files(where=RINGS_MODELS_PATH),
-            label="",
-        )
         # The rings folder also holds the model for rerunning the editor's
         # segmentation from a given year; keep the standard model preselected
-        if DEFAULT_RINGS_MODEL in self._rings_model_weights_file.choices:
-            self._rings_model_weights_file.value = DEFAULT_RINGS_MODEL
+        self._rings_model_weights_file = AssetComboBox(
+            RINGS_MODELS, default=DEFAULT_RINGS_MODEL, label=""
+        )
+        self._rings_model_weights_file.changed.connect(
+            self._update_run_button_state
+        )
 
         self._rings_row = Container(
             widgets=[
@@ -266,8 +261,8 @@ class SingleSampleSegmentationWidget(Container):
             if layout is not None:
                 layout.setContentsMargins(0, 0, 0, 0)
 
-        # Equalize checkbox widths so the model selection dropdowns align
-        # and take equal width, with sufficient padding to prevent truncation
+        # Equalize checkbox widths so the model selection dropdowns align,
+        # with sufficient padding to prevent truncation
         checkbox_width = max(
             self._segment_cells_checkbox.native.sizeHint().width(),
             self._segment_rings_checkbox.native.sizeHint().width(),
@@ -275,31 +270,12 @@ class SingleSampleSegmentationWidget(Container):
         self._segment_cells_checkbox.native.setFixedWidth(checkbox_width)
         self._segment_rings_checkbox.native.setFixedWidth(checkbox_width)
 
-        # Equalize model selection dropdown widths based on all available choices
-        # across cell and ring models
-        all_model_choices = list(self._cells_model_weights_file.choices) + list(
-            self._rings_model_weights_file.choices
-        )
-        font_metrics = self._cells_model_weights_file.native.fontMetrics()
-        max_text_width = max(
-            (
-                font_metrics.horizontalAdvance(str(choice))
-                for choice in all_model_choices
-            ),
-            default=0,
-        )
-        model_dropdown_width = max_text_width + 70
-        self._cells_model_weights_file.native.setFixedWidth(model_dropdown_width)
-        self._rings_model_weights_file.native.setFixedWidth(model_dropdown_width)
-
         if hasattr(self._cells_row.native, "layout") and self._cells_row.native.layout() is not None:
             cells_layout = self._cells_row.native.layout()
             cells_layout.setSpacing(LABEL_SPACING)
-            cells_layout.addStretch()
         if hasattr(self._rings_row.native, "layout") and self._rings_row.native.layout() is not None:
             rings_layout = self._rings_row.native.layout()
             rings_layout.setSpacing(LABEL_SPACING)
-            rings_layout.addStretch()
 
         # Create a button to launch the analysis, showing its progress
         self._run_segmentation_button = JobButton(
@@ -315,9 +291,9 @@ class SingleSampleSegmentationWidget(Container):
             ]
         )
 
-        # Initialize visibility of model selection widgets and button state
-        self._update_cells_model_visibility()
-        self._update_rings_model_visibility()
+        # Initialize the model selection widgets and button state
+        self._update_cells_model_enabled()
+        self._update_rings_model_enabled()
         self._update_run_button_state()
 
     def _get_valid_layers(self, widget=None) -> list:
@@ -335,33 +311,32 @@ class SingleSampleSegmentationWidget(Container):
 
         return valid_layers
 
-    def _get_model_files(self, where: str) -> tuple:
-        """Get available model weight files from the weights directory."""
-        return tuple(
-            path.name
-            for path in Path(where).iterdir()
-            if not path.name.startswith(".")
-        )
-
-    def _update_cells_model_visibility(self) -> None:
-        """Update visibility of cells model selection based on checkbox."""
-        self._cells_model_weights_file.visible = (
+    def _update_cells_model_enabled(self) -> None:
+        """The cells model can only be chosen if its segmentation is checked."""
+        self._cells_model_weights_file.enabled = (
             self._segment_cells_checkbox.value
         )
         self._update_run_button_state()
 
-    def _update_rings_model_visibility(self) -> None:
-        """Update visibility of rings model selection based on checkbox."""
-        self._rings_model_weights_file.visible = (
+    def _update_rings_model_enabled(self) -> None:
+        """The rings model can only be chosen if its segmentation is checked."""
+        self._rings_model_weights_file.enabled = (
             self._segment_rings_checkbox.value
         )
         self._update_run_button_state()
 
-    def _update_run_button_state(self) -> None:
-        """Update enabled state of run button based on checkboxes."""
-        self._run_segmentation_button.enabled = (
-            self._segment_cells_checkbox.value
-            or self._segment_rings_checkbox.value
+    def _update_run_button_state(self, _value=None) -> None:
+        """Enabled when a segmentation is selected and has a model to run."""
+        selected = [
+            combo
+            for checkbox, combo in (
+                (self._segment_cells_checkbox, self._cells_model_weights_file),
+                (self._segment_rings_checkbox, self._rings_model_weights_file),
+            )
+            if checkbox.value
+        ]
+        self._run_segmentation_button.enabled = bool(selected) and all(
+            combo.choices for combo in selected
         )
 
     def _extract_base_name(self, layer_name: str) -> str:
@@ -442,12 +417,12 @@ class SingleSampleSegmentationWidget(Container):
                 args=(
                     self.input_layer.data,
                     (
-                        CELLS_MODELS_PATH / self.cells_model_file
+                        CELLS_MODELS.directory / self.cells_model_file
                         if self.cells_model_file
                         else None
                     ),
                     (
-                        RINGS_MODELS_PATH / self.rings_model_file
+                        RINGS_MODELS.directory / self.rings_model_file
                         if self.rings_model_file
                         else None
                     ),

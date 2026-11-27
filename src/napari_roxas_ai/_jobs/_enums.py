@@ -25,8 +25,7 @@ class JobTag(Enum):
     MEASUREMENTS = "measurements"
     VECTORIZATION = "vectorization"
     RINGS_RERUN = "rings_rerun"
-    CELLS_MODELS_DOWNLOAD = "cells_models_download"
-    RINGS_MODELS_DOWNLOAD = "rings_models_download"
+    ASSETS_DOWNLOAD = "assets_download"
 
 
 def as_tags(tags) -> frozenset[JobTag]:
